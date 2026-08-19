@@ -1,0 +1,332 @@
+---
+title: "Continuous-outcome L2 sensitivity analysis"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Continuous-outcome L2 sensitivity analysis}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, message=FALSE}
+library(marbounds)
+```
+
+## A moment-valid continuous-outcome simulation
+
+The data generator uses Gaussian potential-outcome errors. Consequently,
+the population fourth moments required by the paper's closed-form interaction
+bound are finite. Informative type depends on the factual outcome, all
+informative-type units are missing, and noninformative missingness is
+conditionally independent of the outcome. By default, treatment also depends
+on a disturbance shared by both potential outcomes, giving nonzero residual
+confounding. Set `confounding_strength = 0` to recover conditional
+exchangeability.
+
+The `violation` argument selects which assumptions fail:
+
+```{r dgp-regimes}
+d_mar <- simulate_l2_data(500, violation = "mar")
+d_nuc <- simulate_l2_data(500, violation = "nuc")
+d_both <- simulate_l2_data(500, violation = "both")
+rbind(
+  mar = unlist(l2_oracle_sensitivity_parameters(d_mar)[c("delta_R", "delta_A")]),
+  nuc = unlist(l2_oracle_sensitivity_parameters(d_nuc)[c("delta_R", "delta_A")]),
+  both = unlist(l2_oracle_sensitivity_parameters(d_both)[c("delta_R", "delta_A")])
+)
+```
+
+```{r simulate}
+dat <- simulate_l2_data(n = 1000, seed = 2026)
+mean(dat$C)
+mean(dat$Y1 - dat$Y0)
+mean((dat$Yfull - mean(dat$Yfull))^4)
+mean(dat$U_I)
+mean(dat$U_I)/mean(dat$C)
+l2_oracle_sensitivity_parameters(dat)
+```
+
+The output also contains both potential outcomes and potential missingness
+indicators, as well as true DGP quantities such as `p_A1_given_X`,
+`p_UI0_given_YX`, `p_C0_given_YX`, and `p_C0_given_X`. For continuous outcomes,
+`mu_Y0`, `sd_Y0`, and `f_Y0_given_X` describe the conditional law of `Y0`.
+
+The last quantity is only an empirical diagnostic. No finite dataset can prove
+that a population fourth moment exists; that condition must also be justified
+from the outcome's scientific and statistical model.
+
+## Closed-form outer bounds
+
+```{r cs}
+cs <- l2_bounds(
+  dat, Y = "Y", A = "A", C = "C", X = c("X1", "X2"),
+  delta_M = c(.20, .20), delta_K = c(.15, .15),
+  model = "net", method = "cs", folds = 5,
+  nuisance_method = "SuperLearner", return_true_bounds = TRUE
+)
+cs$ate
+cs$true_bounds$ate
+```
+
+The propensity, observation probability, and outcome regression are estimated
+as functions of `X` with cross-fitting. Use `l2_cs_crossfit()` for the
+orthogonal EIF estimator and pointwise Wald inference for the nonlinear CS
+moments. The oracle result is available only because the simulated data contain
+the known DGP columns.
+
+Here `delta_M` bounds the global L2 net distortion of the factual outcome law
+relative to the respondent law, and `delta_K` bounds the global L2 strength of
+transport across factual treatment groups. The package accepts `delta_A` as a
+backward-compatible alias for `delta_K`.
+
+## Empirical sharp sieve-dual bounds
+
+The sharp computation enforces conditional normalization on the supplied
+basis. The default uses an intercept and main effects for `X`.
+
+```{r sharp, eval=FALSE}
+sharp <- l2_bounds(
+  dat, Y = "Y", A = "A", C = "C", X = c("X1", "X2"),
+  delta_M = .20, delta_K = .15, model = "net",
+  method = "both", folds = 5,
+  basis = ~ X1 + X2 + I(X1^2) + I(X2^2)
+)
+sharp$ate
+sharp$diagnostics
+```
+
+The diagnostics report the primal value, dual value, primal--dual gap, achieved
+divergence budgets, and residual moments for the conditional-normalization
+basis. Material residuals, budget violations, gaps, or optimizer nonconvergence
+indicate that the numerical result should not be reported as a sharp value.
+
+### Cross-fitted plug-in and DR inference
+
+`l2_sharp_crossfit()` refits both nuisance regressions and the sieve-dual
+optimization on each training fold. On its held-out fold, it reports an
+inverse-respondent-weighted plug-in score and a DR score. The latter estimates
+the conditional mean of the optimized loss, `m_H(X)`, by regressing the
+training-fold respondent pseudo-outcome on `X`; it also includes the analytic
+chain-rule corrections for the treatment propensity and response probability.
+
+```{r sharp-dr, eval=FALSE}
+cf <- l2_sharp_crossfit(
+  dat, "Y", "A", "C", c("X1", "X2"),
+  delta_M = .20, delta_K = .15, model = "net",
+  folds = 5, nuisance_method = "SuperLearner",
+  basis = ~ X1 + X2 + I(X1^2) + I(X2^2)
+)
+cf$arm
+cf$ate
+```
+
+The returned Wald intervals describe sampling uncertainty for the empirical
+sieve endpoint. They require stable active sets and sufficiently fast nuisance
+and dual estimation; active-set changes can make the endpoint nonregular.
+
+The simulation wrapper compares endpoint bias, RMSE, standard-error
+calibration, and interval coverage for the two evaluations. Supplying known
+endpoint truth is preferable. If it is omitted, the function constructs a
+large-sample empirical-sieve reference and labels it as such.
+
+```{r sharp-dr-simulation, eval=FALSE}
+mc <- l2_compare_dr_plugin(
+  B = 500, n = 1000, truth_n = 50000,
+  delta_M = .20, delta_K = .15, model = "net",
+  folds = 5, nuisance_simulation = "oracle_error",
+  nuisance_error_rate = .25,
+  nuisance_error_scale = c(e = 1, rho = 1, regression = 1),
+  nuisance_error_sign = c(e = 1, rho = -1, regression = 1)
+)
+mc$summary
+mc$bound_coverage
+mc$oracle_parameters
+mc$evaluated_parameters
+mc$linf_bounds
+mc$linf_sharp_bounds
+mc$bound_comparison
+```
+
+The complete paper design is available as data rather than being hidden in a
+script. The high-level runner checkpoints after every scenario and returns
+tidy endpoint, confidence-set, width, mechanism, and optimizer summaries.
+
+```{r paper-simulation, eval=FALSE}
+design <- l2_simulation_design("fast")
+study <- l2_simulation_study(design, B = 10, truth_n = 2000, folds = 2)
+study$endpoint_summary
+study$set_coverage
+plot(study, "coverage")
+
+calibration_mc <- l2_calibration_simulation(
+  B = 100, n = 1000, truth_n = 30000, p_z = 0:1
+)
+calibration_mc$summary
+```
+
+Every comparison reports `plugin`, `dr` (the EIF with the specified nuisance
+errors), and `true_eif`. The last uses exact DGP treatment and response
+probabilities and numerical integration under the known conditional respondent
+outcome law. The sign vector controls the three perturbation directions
+independently; by default the propensity and response errors have opposite
+signs.
+
+The minimal oracle parameters are returned on every run. If no sensitivity
+radii are supplied, `parameter_evaluation = "auto"`
+evaluates only at those oracle parameters. Set `parameter_evaluation =
+"oracle"` to override supplied radii, or `"specified"` to evaluate the supplied
+radii while retaining the oracle values as diagnostics.
+
+The default bounded latent link makes the oracle density ratios uniformly
+bounded. The output therefore also compares the L2 sharp-sieve interval with a
+valid L-infinity/L1 Holder outer interval. This L-infinity interval is an outer
+benchmark rather than a sharp conditional-normalization solution. With
+`density_ratio_link = "linear"`, the active density ratios are unbounded and
+the package reports infinite L-infinity radii and an unbounded interval.
+
+Set `linf_method = "sharp"` or `"both"` to solve the pointwise-envelope problem
+as a linear program. This enforces the same empirical basis normalization for
+`M` and `L` used by the L2 sieve program, making the comparison sharp for the
+chosen empirical sieve. It requires the suggested `lpSolve` package. The
+`linf_max_n` argument caps the calibration sample used by the LP because it has
+two variables per respondent and pointwise constraints per row.
+
+For an observed dataset rather than the known simulation law, use the
+data-facing comparison directly:
+
+```{r linf-data, eval=FALSE}
+l2_linf_bounds(
+  dat, "Y", "A", "C", c("X1", "X2"), delta = .5,
+  delta_R_inf = .4, delta_A_inf = .3, method = "both"
+)
+```
+
+Here each oracle nuisance is perturbed in a fixed smooth direction with
+magnitude proportional to `n^(-nuisance_error_rate)`. Fixing the direction
+prevents first-order plug-in bias from disappearing because positive and
+negative perturbations average out across replications. A zero rate gives
+persistent misspecification. Use `nuisance_simulation = "estimated"` for the
+slower experiment that refits the requested learners in every replication.
+
+## Primary net-missingness model
+
+```{r net}
+net <- l2_bounds(
+  dat, Y = "Y", A = "A", C = "C", X = c("X1", "X2"),
+  model = "net", delta_M = c(.12, .12), delta_K = c(.15, .15),
+  method = "cs", folds = 5
+)
+net$ate
+```
+
+This model bounds the net distributional distortion `M - 1`. It is the
+package default and avoids separately eliciting latent informative-missingness
+prevalence and severity. Use `model = "separated"` with `delta`, `delta_R`,
+and `delta_K` for the mechanistic comparison.
+
+Both cross-fitted inference functions also accept `model = "net"` and
+`delta_M`.
+
+## Sensitivity surface and tipping frontier
+
+```{r grid}
+grid <- expand.grid(
+  delta_M = seq(0, .4, length.out = 5),
+  delta_K = seq(0, .3, length.out = 5)
+)
+surface <- l2_sensitivity_grid(
+  dat, "Y", "A", "C", c("X1", "X2"), grid = grid,
+  model = "net", method = "cs", folds = 5
+)
+head(surface$results)
+frontier <- l2_tipping_frontier(surface, threshold = 0, endpoint = "lower")
+if (any(frontier$tipped_on_grid)) plot(frontier)
+```
+
+Groups for which the null is not reached have `tipped_on_grid = FALSE` rather
+than being mislabeled with the closest grid point.
+
+For simultaneous rather than pointwise uncertainty, evaluate the cross-fitted
+scores on a common grid and apply the paper's multiplier process:
+
+```{r multiplier-band, eval=FALSE}
+band <- l2_sensitivity_band(
+  dat, "Y", "A", "C", c("X1", "X2"), grid,
+  model = "net", bound_method = "cs", estimator = "eif",
+  folds = 5, B = 1000
+)
+band$outward
+```
+
+The same grid can be inverted. For an observed benchmark discrepancy, the
+calibration frontier reports the smallest confounding radius on the grid that,
+together with each missingness radius, can reproduce that discrepancy:
+
+```{r inverse-calibration}
+l2_calibration_frontier(
+  surface,
+  benchmark = 0.1,
+  type = "discrepancy"
+)
+```
+
+This is a frontier of jointly sufficient budgets, not an estimate of the true
+decomposition. Because `surface` above uses CS bounds, its inversion is an
+outer approximation. A `sharp_sieve` grid yields the corresponding empirical
+sieve calibration frontier.
+
+## Calibration and bootstrap uncertainty
+
+When MAR and exchangeability may both fail, mechanism-specific calibration is
+entangled. The primary joint calibration therefore uses a reduced-form `M`
+tilt, interpreted as total rather than mechanism-specific distortion:
+
+```{r calibration}
+l2_calibrate(M = c(.95, 1, 1.05), benchmark = "observed_data")
+```
+
+A mechanism-specific observed-data benchmark must state what identifies the
+other mechanism. For example, calibrating `K` requires
+`conditional_on = "MAR"`; calibrating `R` requires
+`conditional_on = "exchangeability"`. The function rejects an observed-data
+pair of `R` and `K` benchmarks because that pair is not jointly identified.
+
+The main joint calibration uses paired covariate-omission AIPW benchmarks:
+
+```{r benchmark-calibration, eval=FALSE}
+bench <- l2_aipw_benchmarks(
+  dat, "Y", "A", "C", c("X1", "X2"), p_z = 0:1,
+  estimator = "aipw", variance = TRUE
+)
+bench_band <- l2_benchmark_band(bench, B = 1000)
+calibrated <- l2_benchmark_frontiers(surface, bench)
+l2_equal_radius_comparison(surface, calibrated, plot = TRUE)
+```
+
+A full nonparametric bootstrap refits the nuisance functions and bounds. Sharp
+bounds may be nonregular at active-set transitions, so percentile intervals
+should be treated cautiously in that regime.
+
+```{r bootstrap, eval=FALSE}
+boot <- l2_bootstrap(
+  dat, "Y", "A", "C", c("X1", "X2"),
+  delta = .5, delta_R = .25, delta_A = .15,
+  method = "cs", B = 200
+)
+boot$ci
+```
+
+## Binary composite and separable effects
+
+For binary outcomes, `l2_prevalence_bounds()` implements the MAR-only capped
+L2 support-function bounds for the composite and separable direct effects.
+The influence score includes the multiplier contribution from the active norm
+constraint because the norm is taken under the observed covariate law.
+
+```{r binary-alternative, eval=FALSE}
+binary_dat <- dat
+binary_dat$Y <- as.numeric(binary_dat$Y > 0)
+l2_prevalence_bounds(
+  binary_dat, "Y", "A", "C", c("X1", "X2"),
+  estimand = "composite", kappa = c(.2, .2), folds = 5
+)
+```

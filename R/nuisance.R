@@ -1,3 +1,12 @@
+l2_quiet_superlearner <- function(...) {
+  # SuperLearner defaults to parent.frame() when resolving `All` and learner
+  # wrappers.  A namespace-qualified call from marbounds would otherwise look
+  # in the marbounds namespace and fail with "object 'All' not found".
+  suppressWarnings(SuperLearner::SuperLearner(
+    ..., verbose = FALSE, env = asNamespace("SuperLearner")
+  ))
+}
+
 #' Estimate nuisance functions using SuperLearner with cross-fitting
 #'
 #' Estimates e(X)=P(A=1|X), pi_0(X)=P(C=1|X,A=0), pi_1(X)=P(C=1|X,A=1),
@@ -31,6 +40,11 @@ estimate_nuisance <- function(X, A, C, Y,
   }
   n <- length(A)
   if (!is.matrix(X)) X <- as.matrix(X)
+  family_Y_object <- switch(family_Y,
+    gaussian = stats::gaussian(),
+    binomial = stats::binomial(),
+    stop("family_Y must be 'gaussian' or 'binomial'")
+  )
   V <- min(V, max(1L, n))
   if (is.null(seed)) seed <- 1L
   set.seed(seed)
@@ -41,6 +55,8 @@ estimate_nuisance <- function(X, A, C, Y,
   pi1 <- numeric(n)
   mu0 <- numeric(n)
   mu1 <- numeric(n)
+  successful_sl_fits <- 0L
+  sl_errors <- character()
 
   for (v in seq_len(V)) {
     train <- fold_id != v
@@ -48,31 +64,25 @@ estimate_nuisance <- function(X, A, C, Y,
     n_train <- sum(train)
     Xtrain <- X[train, , drop = FALSE]
     Xeval <- X[eval, , drop = FALSE]
-    # Internal CV must have at least 1 obs per fold; use V=1 when n_train too small
-    cv_v <- min(2L, max(1L, n_train))
-
     # Propensity e(X) = P(A=1|X) — skip SuperLearner if training set empty or too small
     if (n_train < 2L || length(unique(A[train])) < 2L) {
       e[eval] <- clip_probs(mean(A))
     } else {
       fit_e <- tryCatch(
         {
-          sink_conn <- textConnection("sink_output", "w", local = TRUE)
-          sink(sink_conn, type = "message")
-          on.exit({sink(type = "message"); close(sink_conn)}, add = TRUE)
-          suppressWarnings(
-            SuperLearner::SuperLearner(
+          l2_quiet_superlearner(
               Y = A[train],
               X = as.data.frame(Xtrain),
               newX = as.data.frame(Xeval),
-              family = "binomial",
-              SL.library = sl_lib_prop,
-              cvControl = list(V = 1)
-            )
+              family = stats::binomial(),
+              SL.library = sl_lib_prop
           )
         },
-        error = function(e) NULL
+        error = function(e) {
+          sl_errors <<- c(sl_errors, conditionMessage(e)); NULL
+        }
       )
+      if (!is.null(fit_e)) successful_sl_fits <- successful_sl_fits + 1L
       if (is.null(fit_e)) {
         e[eval] <- clip_probs(mean(A[train]))
       } else {
@@ -88,25 +98,21 @@ estimate_nuisance <- function(X, A, C, Y,
         if (a == 0) pi0[eval] <- clip_probs(mean(C[A == 0])) else pi1[eval] <- clip_probs(mean(C[A == 1]))
         next
       }
-      cv_v_a <- min(2L, max(1L, n_ia))
       fit_pi <- tryCatch(
         {
-          sink_conn <- textConnection("sink_output", "w", local = TRUE)
-          sink(sink_conn, type = "message")
-          on.exit({sink(type = "message"); close(sink_conn)}, add = TRUE)
-          suppressWarnings(
-            SuperLearner::SuperLearner(
+          l2_quiet_superlearner(
               Y = C[ia],
               X = as.data.frame(X[ia, , drop = FALSE]),
               newX = as.data.frame(Xeval),
-              family = "binomial",
-              SL.library = sl_lib_miss,
-              cvControl = list(V = 1)
-            )
+              family = stats::binomial(),
+              SL.library = sl_lib_miss
           )
         },
-        error = function(e) NULL
+        error = function(e) {
+          sl_errors <<- c(sl_errors, conditionMessage(e)); NULL
+        }
       )
+      if (!is.null(fit_pi)) successful_sl_fits <- successful_sl_fits + 1L
       if (is.null(fit_pi)) {
         if (a == 0) pi0[eval] <- clip_probs(mean(C[ia])) else pi1[eval] <- clip_probs(mean(C[ia]))
       } else {
@@ -129,29 +135,23 @@ estimate_nuisance <- function(X, A, C, Y,
         }
         fit_mu <- tryCatch(
           {
-            sink_conn <- textConnection("sink_output", "w", local = TRUE)
-            sink(sink_conn, type = "message")
-            on.exit({sink(type = "message"); close(sink_conn)}, add = TRUE)
-            suppressWarnings(
-              SuperLearner::SuperLearner(
+            l2_quiet_superlearner(
                 Y = Y_ia,
                 X = as.data.frame(X[ia, , drop = FALSE]),
                 newX = as.data.frame(Xeval),
-                family = family_Y,
-                SL.library = sl_lib_outcome,
-                cvControl = list(V = 1)
-              )
+                family = family_Y_object,
+                SL.library = sl_lib_outcome
             )
           },
-          error = function(e) NULL
+          error = function(e) {
+            sl_errors <<- c(sl_errors, conditionMessage(e)); NULL
+          }
         )
+        if (!is.null(fit_mu)) successful_sl_fits <- successful_sl_fits + 1L
         if (is.null(fit_mu)) {
           if (a == 0) mu0[eval] <- mean(Y_ia, na.rm = TRUE) else mu1[eval] <- mean(Y_ia, na.rm = TRUE)
         } else {
           pred <- fit_mu$SL.predict
-          if (family_Y == "gaussian") {
-            pred <- pmax(0, pmin(1, pred))  # bounded outcome for gaussian
-          }
           if (a == 0) mu0[eval] <- pred else mu1[eval] <- pred
         }
       }
@@ -168,31 +168,25 @@ estimate_nuisance <- function(X, A, C, Y,
       } else {
         fit_mu_pooled <- tryCatch(
           {
-            sink_conn <- textConnection("sink_output", "w", local = TRUE)
-            sink(sink_conn, type = "message")
-            on.exit({sink(type = "message"); close(sink_conn)}, add = TRUE)
-            suppressWarnings(
-              SuperLearner::SuperLearner(
+            l2_quiet_superlearner(
                 Y = Y_io,
                 X = as.data.frame(X[io, , drop = FALSE]),
                 newX = as.data.frame(Xeval),
-                family = family_Y,
-                SL.library = sl_lib_outcome,
-                cvControl = list(V = 1)
-              )
+                family = family_Y_object,
+                SL.library = sl_lib_outcome
             )
           },
-          error = function(e) NULL
+          error = function(e) {
+            sl_errors <<- c(sl_errors, conditionMessage(e)); NULL
+          }
         )
+        if (!is.null(fit_mu_pooled)) successful_sl_fits <- successful_sl_fits + 1L
         if (is.null(fit_mu_pooled)) {
           mu_pooled <- mean(Y_io, na.rm = TRUE)
           mu0[eval] <- mu_pooled
           mu1[eval] <- mu_pooled
         } else {
           pred <- fit_mu_pooled$SL.predict
-          if (family_Y == "gaussian") {
-            pred <- pmax(0, pmin(1, pred))  # bounded outcome for gaussian
-          }
           mu0[eval] <- pred
           mu1[eval] <- pred
         }
@@ -200,5 +194,11 @@ estimate_nuisance <- function(X, A, C, Y,
     }
   }
 
+  if (successful_sl_fits == 0L && ncol(X) > 0L) {
+    detail <- if (length(sl_errors)) paste(unique(sl_errors), collapse = "; ") else
+      "no error message was returned"
+    warning("All SuperLearner fits failed; nuisance estimates used marginal fallbacks. ",
+            "Underlying error: ", detail)
+  }
   list(e = e, pi0 = pi0, pi1 = pi1, mu0 = mu0, mu1 = mu1, fold_id = fold_id)
 }

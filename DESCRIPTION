@@ -1,22 +1,38 @@
 Package: marbounds
 Title: Bounds on Causal Effects with Mixed Informative and Non-Informative Missingness
-Version: 0.1.0
+Version: 0.3.0
 Authors@R: c(
     person("Max", "Rubinstein", email = "mrubinstein@rand.org", role = c("aut", "cre")),
     person("Denis", "Agniel", email = "dagniel@rand.org", role = "aut")
   )
 Description: Implements influence-function-based estimators for bounds on causal effects
   (ATE, composite ATE, separable direct effect) when outcomes are missing due to an
-  unknown mixture of informative and non-informative missingness. Supports
-  user-specified estimands, assumptions, sensitivity parameters, tipping point
-  analysis, and multiplier bootstrap over a grid of parameters. Nuisance functions
-  are estimated via SuperLearner with cross-fitting.
+  unknown mixture of informative and non-informative missingness. Supports both the
+  original binary-outcome models and continuous-outcome global L2 sensitivity models
+  for informative missingness and unmeasured confounding. Continuous-outcome tools
+  include closed-form outer bounds, empirical sharp sieve-dual bounds, reduced-form
+  net-missingness bounds, sensitivity grids, tipping frontiers, and simulation.
+  Nuisance functions are estimated with cross-fitting. Sharp continuous-outcome
+  endpoints support both plug-in and augmented doubly robust evaluation.
+  The package also implements reduced-form influence-function estimators,
+  multiplier simultaneous bands, L-infinity outer and sharp-sieve comparisons,
+  capped L2 prevalence bounds for binary composite and separable effects,
+  covariate-omission calibration, and simulation tools for comparing endpoint
+  bias and coverage. Prespecified simulation-study drivers vary overlap,
+  missingness prevalence and severity, nuisance complexity, concentration,
+  and outcome tails, and separately assess AIPW calibration benchmarks.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Imports:
   SuperLearner,
-  stats
+  graphics,
+  stats,
+  utils
 Suggests:
   testthat,
-  ggplot2
+  ggplot2,
+  lpSolve,
+  knitr,
+  rmarkdown
+VignetteBuilder: knitr
 RoxygenNote: 7.3.3
