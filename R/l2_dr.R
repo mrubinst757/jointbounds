@@ -1,24 +1,33 @@
 #' Cross-fitted plug-in and doubly robust sharp L2 endpoint estimators
 #'
 #' Fits the empirical net-distortion sieve dual by default (or the optional
-#' separated prevalence--severity dual) on training folds and evaluates it on
-#' held-out folds. The plug-in estimator uses inverse respondent weights.
+#' separated prevalence--severity dual) using rotating three-stage
+#' cross-fitting. Structural nuisances and the dual optimizer, pseudo-outcome
+#' regressions, and final score evaluation use disjoint observations in every
+#' rotation. The plug-in estimator uses inverse respondent weights.
 #' The DR estimator augments the held-out dual loss by its respondent-law
 #' conditional mean and adds the structural propensity and response-probability
 #' chain-rule corrections described in the companion paper.
 #'
 #' @inheritParams l2_bounds
 #' @param conf_level Wald confidence level.
+#' @param folds Number of cross-fitting folds when nuisances are fitted. At
+#'   least three folds are then used so the three stages remain disjoint.
+#'   Controlled-error simulations directly construct nuisance estimates and
+#'   ignore this argument.
 #' @param boundary_tol Numerical tolerance for declaring the mixture lower
 #'   envelope active.
-#' @param nuisance_source Either `"estimated"`, which fits nuisance models, or
-#'   `"oracle_error"`, which perturbs the known nuisances returned by
-#'   `simulate_l2_data()`. The latter is intended only for simulation.
+#' @param nuisance_source Either `"estimated"`, which fits nuisance models with
+#'   cross-fitting, or `"oracle_error"`, which directly constructs estimated
+#'   nuisances by perturbing known DGP functions. The latter fits no regressions,
+#'   uses no sample splitting, and is intended only for simulation.
 #' @param nuisance_error_rate Exponent alpha in the simulated nuisance-error
 #'   magnitude n^(-alpha).
 #' @param nuisance_error_scale Scalar or named vector with entries `e`, `rho`,
-#'   and `regression` multiplying errors in the sampling scores and in the
-#'   conditional dual-loss/derivative regressions.
+#'   `mu`, and `regression` multiplying errors in the structural probabilities,
+#'   outcome regression, and conditional dual-loss/derivative regressions.
+#'   For backward compatibility, a three-entry vector omitting `mu` uses the
+#'   `regression` magnitude for `mu`.
 #' @param nuisance_error_sign Named vector giving independently configurable
 #'   perturbation directions for `e`, `rho`, and `regression`.
 #' @return A list with arm and ATE endpoint estimates, standard errors,
@@ -34,6 +43,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                               sl_lib_miss = "SL.glm",
                               sl_lib_outcome = "SL.glm",
                               seed = 1L, control = list(),
+                              diagnostic_control = list(),
                               conf_level = .95, boundary_tol = 1e-7,
                               nuisance_source = c("estimated", "oracle_error"),
                               nuisance_error_rate = .25,
@@ -44,6 +54,8 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
   nuisance_method <- match.arg(nuisance_method)
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
+  diagnostic_control <- l2_diagnostic_control(diagnostic_control,
+                                               compute_hessian = FALSE)
   if (length(conf_level) != 1L || !is.finite(conf_level) ||
       conf_level <= 0 || conf_level >= 1)
     stop("conf_level must be a scalar strictly between zero and one")
@@ -53,9 +65,15 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
   delta_A <- l2_as_pair(delta_A, "delta_K")
   delta_M <- l2_as_pair(delta_M, "delta_M")
   l2_validate_inputs(data, Y, A, C, X, delta, delta_R, delta_A, delta_M)
-  n <- nrow(data); folds <- max(2L, min(as.integer(folds), n))
+  n <- nrow(data)
+  if (n < 3L) stop("l2_sharp_crossfit() requires at least three observations")
+  controlled_error <- nuisance_source == "oracle_error"
+  requested_folds <- as.integer(folds)
+  folds <- if (controlled_error) 1L else
+    max(3L, min(requested_folds, n))
   set.seed(seed)
-  fold_id <- sample(rep(seq_len(folds), length.out = n))
+  fold_id <- if (controlled_error) rep(1L, n) else
+    sample(rep(seq_len(folds), length.out = n))
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   arm_ep <- vector("list", 4L); scores <- vector("list", 4L)
   diags <- list()
@@ -64,40 +82,70 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
     "treatment_lp_X", "confounding_strength") %in% names(data))
 
   for (a in 0:1) for (sigma in c(-1, 1)) {
+    endpoint <- if (sigma == -1) "lower" else "upper"
     score_plugin <- score_dr <- score_true <- rep(NA_real_, n)
     fold_constant <- fold_constant_true <- numeric(folds)
     fold_diag <- vector("list", folds)
     for (v in seq_len(folds)) {
-      te <- fold_id == v; tr <- !te
+      ## Rotate three disjoint roles.  Fold v evaluates the final score, the
+      ## preceding fold fits the pseudo-outcome regressions, and all remaining
+      ## folds fit the structural nuisances and dual optimizer.
+      regression_fold <- if (controlled_error) 1L else
+        if (v == 1L) folds else v - 1L
+      if (controlled_error) {
+        ## Controlled-error simulations directly construct every nuisance
+        ## estimate from its DGP value plus a prespecified error. There are no
+        ## learned regressions and hence no cross-fitting roles.
+        te <- reg <- tr <- rep(TRUE, n)
+      } else {
+        te <- fold_id == v
+        reg <- fold_id == regression_fold
+        tr <- !(te | reg)
+      }
+      nonfit <- if (controlled_error) rep(TRUE, n) else !tr
+      nonfit_id <- which(nonfit)
+      reg_pos <- match(which(reg), nonfit_id)
+      te_pos <- match(which(te), nonfit_id)
+      split_nonfit <- function(z) list(
+        train = z$train,
+        regression = lapply(z$test, `[`, reg_pos),
+        test = lapply(z$test, `[`, te_pos)
+      )
       ns <- if (nuisance_source == "oracle_error")
-        l2_split_nuisance_oracle_error(data, X, tr, te,
+        l2_split_nuisance_oracle_error(data, X, tr, nonfit,
           nuisance_error_rate, nuisance_error_scale, nuisance_error_sign)
-      else l2_split_nuisance(data, Y, A, C, X, tr, te,
+      else l2_split_nuisance(data, Y, A, C, X, tr, nonfit,
         nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome)
-      bp <- l2_basis_split(data, X, basis, tr, te)
+      ns <- split_nonfit(ns)
+      bp0 <- l2_basis_split(data, X, basis, tr, nonfit)
+      bp <- list(train = bp0$train,
+        regression = bp0$test[reg_pos, , drop = FALSE],
+        test = bp0$test[te_pos, , drop = FALSE])
       if (has_oracle) {
-        ns0 <- l2_split_nuisance_oracle_error(data, X, tr, te, 0,
+        ns0 <- l2_split_nuisance_oracle_error(data, X, tr, nonfit, 0,
           c(e = 0, rho = 0, regression = 0),
           c(e = 1, rho = 1, regression = 1))
+        ns0 <- split_nonfit(ns0)
         r0 <- l2_reference_quantities(data[[Y]][tr], data[[A]][tr],
           data[[C]][tr], a, ns0$train)
         dual0 <- l2_dual_arm(r0, bp$train,
           delta[a + 1L] * r0$pi, delta_R[a + 1L], delta_A[a + 1L],
-          delta_M[a + 1L], model, sigma, control)
+          delta_M[a + 1L], model, sigma, control,
+          diagnostic_control = diagnostic_control)
       }
-      dual_nuisance <- if (nuisance_source == "oracle_error" && has_oracle)
-        ns0$train else ns$train
+      dual_nuisance <- ns$train
       rtr <- l2_reference_quantities(data[[Y]][tr], data[[A]][tr],
                                     data[[C]][tr], a, dual_nuisance)
       btr <- delta[a + 1L] * rtr$pi
-      dual <- if (nuisance_source == "oracle_error" && has_oracle) dual0 else
-        l2_dual_arm(rtr, bp$train, btr, delta_R[a + 1L],
-                    delta_A[a + 1L], delta_M[a + 1L], model,
-                    sigma, control)
+      dual <- l2_dual_arm(rtr, bp$train, btr, delta_R[a + 1L],
+                          delta_A[a + 1L], delta_M[a + 1L], model,
+                          sigma, control,
+                          diagnostic_control = diagnostic_control)
       par <- dual$coefficients
-      train_eval <- l2_dual_evaluate(
-        y = data[[Y]][tr], A = data[[A]][tr], C = data[[C]][tr], a = a,
-         nuisance = ns$train, B = bp$train, delta = delta[a + 1L],
+      regression_eval <- l2_dual_evaluate(
+        y = data[[Y]][reg], A = data[[A]][reg], C = data[[C]][reg], a = a,
+         nuisance = ns$regression, B = bp$regression,
+         delta = delta[a + 1L],
          par = par, sigma = sigma, boundary_tol = boundary_tol,
          model = model, delta_M = delta_M[a + 1L])
       test_eval <- l2_dual_evaluate(
@@ -106,7 +154,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
          par = par, sigma = sigma, boundary_tol = boundary_tol,
          model = model, delta_M = delta_M[a + 1L])
 
-      obs_tr <- data[[A]][tr] == a & data[[C]][tr] == 0
+      obs_reg <- data[[A]][reg] == a & data[[C]][reg] == 0
       if (nuisance_source == "oracle_error") {
         cm_err <- l2_oracle_dual_regressions(data[te, , drop = FALSE], a,
           bp$test, delta[a + 1L], par, sigma, boundary_tol,
@@ -115,7 +163,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
         mH <- cm_err$mH; de <- cm_err$d_e; drho <- cm_err$d_rho
         esc <- l2_nuisance_error_scale(nuisance_error_scale)
         esign <- l2_nuisance_error_sign(nuisance_error_sign)
-        emag <- sum(tr)^(-nuisance_error_rate) * esc[["regression"]] *
+        emag <- sum(reg)^(-nuisance_error_rate) * esc[["regression"]] *
           esign[["regression"]]
         add_error <- function(pred, direction) {
           pred + emag * direction
@@ -124,14 +172,14 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
         de <- add_error(de, ns$test$err_de)
         drho <- add_error(drho, ns$test$err_drho)
       } else {
-        mH <- l2_pseudo_regression(data[tr, , drop = FALSE], X,
-          train_eval$H[obs_tr], obs_tr, data[te, , drop = FALSE],
+        mH <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
+          regression_eval$H[obs_reg], obs_reg, data[te, , drop = FALSE],
           nuisance_method, sl_lib_outcome)
-        de <- l2_pseudo_regression(data[tr, , drop = FALSE], X,
-          train_eval$d_e[obs_tr], obs_tr, data[te, , drop = FALSE],
+        de <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
+          regression_eval$d_e[obs_reg], obs_reg, data[te, , drop = FALSE],
           nuisance_method, sl_lib_outcome)
-        drho <- l2_pseudo_regression(data[tr, , drop = FALSE], X,
-          train_eval$d_rho[obs_tr], obs_tr, data[te, , drop = FALSE],
+        drho <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
+          regression_eval$d_rho[obs_reg], obs_reg, data[te, , drop = FALSE],
           nuisance_method, sl_lib_outcome)
       }
       e <- ns$test[[paste0("e", a)]]
@@ -169,10 +217,13 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
         if (delta_A[a + 1L] == 0) 0 else
           dual$lambda_A * delta_A[a + 1L]^2
       fold_diag[[v]] <- list(dual = dual,
-        dual_nuisance = if (nuisance_source == "oracle_error" && has_oracle)
-          "oracle" else "estimated",
+        dual_nuisance = if (controlled_error)
+          "controlled-error estimate" else "estimated",
         active_fraction = mean(test_eval$active[test_eval$obs]),
-        fold = v)
+        arm = a, endpoint = endpoint,
+        fold = v, regression_fold = regression_fold,
+        fit_folds = paste(setdiff(seq_len(folds), c(v, regression_fold)),
+                          collapse = ","))
     }
     constants <- fold_constant[fold_id]
     raw_plugin <- constants + score_plugin
@@ -220,22 +271,56 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
     hi <- ate_df[ate_df$estimator == est & ate_df$endpoint == "upper", ]
     data.frame(estimator = est, lower = lo$conf_low, upper = hi$conf_high)
   }))
+  diagnostic_table <- do.call(rbind, lapply(diags, function(endpoint_folds)
+    do.call(rbind, lapply(endpoint_folds, function(z) {
+      row <- l2_dual_diagnostic_row(z$dual, z$arm, z$endpoint)
+      row$fold <- z$fold
+      row$regression_fold <- z$regression_fold
+      row$fit_folds <- z$fit_folds
+      row$dual_nuisance <- z$dual_nuisance
+      row$active_fraction <- z$active_fraction
+      row
+    }))))
+  rownames(diagnostic_table) <- NULL
+  diagnostic_summary <- l2_diagnostic_summary(diagnostic_table)
   out <- list(arm = arm, ate = ate_df, identified_set_ci = outward,
               scores = ate_scores,
               diagnostics = diags, fold_id = fold_id,
+              crossfit_roles = if (controlled_error) data.frame(
+                evaluation_fold = NA_integer_, regression_fold = NA_integer_,
+                fit_folds = NA_character_,
+                scheme = "not used for controlled nuisance errors",
+                stringsAsFactors = FALSE) else data.frame(
+                  evaluation_fold = seq_len(folds),
+                  regression_fold = c(folds, seq_len(folds - 1L)),
+                  fit_folds = vapply(seq_len(folds), function(v) {
+                    rv <- if (v == 1L) folds else v - 1L
+                    paste(setdiff(seq_len(folds), c(v, rv)), collapse = ",")
+                  }, character(1)), scheme = "rotating three-stage",
+                  stringsAsFactors = FALSE),
+              diagnostic_table = diagnostic_table,
+              diagnostic_summary = diagnostic_summary,
+              diagnostic_note = l2_diagnostic_note(),
               parameters = list(delta = delta, delta_R = delta_R,
                                 delta_A = delta_A, delta_K = delta_A,
                                 delta_M = delta_M,
                                 model = model, folds = folds,
+                                requested_folds = requested_folds,
+                                sample_splitting = if (controlled_error)
+                                  "none: nuisances directly perturbed" else
+                                  "rotating three-stage cross-fitting",
                                 nuisance_source = nuisance_source,
                                 nuisance_error_rate = nuisance_error_rate,
                                 nuisance_error_scale = nuisance_error_scale,
                                 nuisance_error_sign = nuisance_error_sign),
               inference_note = paste("DR intervals use the augmented endpoint",
                 "score under the paper's regularity and product-rate conditions;",
+                "the three fitting stages are separated by cyclic rotation;",
                 "plug-in intervals condition on fitted nuisances."),
               call = match.call())
   class(out) <- "marbounds_l2_sharp_cf"
+  if (isTRUE(diagnostic_control$warn))
+    l2_warn_diagnostics(diagnostic_summary, "Cross-fitted sharp-bound")
   out
 }
 
@@ -316,35 +401,49 @@ l2_split_nuisance_oracle_error <- function(data, X, tr, te, rate, scale, sign) {
     rho0 <- 1 - data[[paste0("p_C", a, "_given_X")]]
     rho <- stats::plogis(logit(rho0) +
       sign[["rho"]] * scale[["rho"]] * mag * smooth_error(2 + a))
-    mu <- data[[paste0("mu_Y", a, "_given_XC0")]]
+    mu <- data[[paste0("mu_Y", a, "_given_XC0")]] +
+      sign[["mu"]] * scale[["mu"]] * mag * smooth_error(4 + a)
     out[[paste0("rho", a)]] <- clip_probs(rho, 1e-4)
     out[[paste0("mu", a)]] <- mu
   }
-  out$err_H <- smooth_error(6)
-  out$err_de <- smooth_error(7)
-  out$err_drho <- smooth_error(8)
+  out$err_H <- smooth_error(7)
+  out$err_de <- smooth_error(8)
+  out$err_drho <- smooth_error(9)
+  for (k in 1:4) out[[paste0("err_nu", k)]] <- smooth_error(9 + k)
   list(train = lapply(out, `[`, tr), test = lapply(out, `[`, te))
 }
 
 l2_nuisance_error_scale <- function(scale) {
-  target <- c("e", "rho", "regression")
+  target <- c("e", "rho", "mu", "regression")
   if (length(scale) == 1L && is.null(names(scale))) {
-    scale <- rep(scale, 3L); names(scale) <- target
-  } else if (is.null(names(scale))) names(scale) <- target[seq_along(scale)]
+    scale <- rep(scale, 4L); names(scale) <- target
+  } else if (is.null(names(scale))) {
+    old_target <- c("e", "rho", "regression")
+    names(scale) <- if (length(scale) == 3L) old_target else
+      target[seq_along(scale)]
+  }
+  if (!"mu" %in% names(scale) && "regression" %in% names(scale))
+    scale[["mu"]] <- scale[["regression"]]
   if (!all(target %in% names(scale)) || any(!is.finite(scale[target])) ||
       any(scale[target] < 0))
-    stop("nuisance_error_scale must be nonnegative with entries e, rho, and regression")
+    stop("nuisance_error_scale must be nonnegative with entries e, rho, mu, and regression")
   scale[target]
 }
 
 l2_nuisance_error_sign <- function(sign) {
-  target <- c("e", "rho", "regression")
+  target <- c("e", "rho", "mu", "regression")
   if (length(sign) == 1L && is.null(names(sign))) {
-    sign <- rep(sign, 3L); names(sign) <- target
-  } else if (is.null(names(sign))) names(sign) <- target[seq_along(sign)]
+    sign <- rep(sign, 4L); names(sign) <- target
+  } else if (is.null(names(sign))) {
+    old_target <- c("e", "rho", "regression")
+    names(sign) <- if (length(sign) == 3L) old_target else
+      target[seq_along(sign)]
+  }
+  if (!"mu" %in% names(sign) && "regression" %in% names(sign))
+    sign[["mu"]] <- sign[["regression"]]
   if (!all(target %in% names(sign)) || any(!is.finite(sign[target])) ||
       any(!sign[target] %in% c(-1, 1)))
-    stop("nuisance_error_sign must have entries e, rho, and regression equal to -1 or 1")
+    stop("nuisance_error_sign must have entries e, rho, mu, and regression equal to -1 or 1")
   sign[target]
 }
 
@@ -506,6 +605,14 @@ l2_compare_dr_plugin <- function(B = 200L, n = 1000L,
     " through the corresponding l2_compare_dr_plugin argument, not dgp_args")
   truth_supplied <- !is.null(truth)
   dots <- list(...)
+  if (nuisance_simulation == "estimated" &&
+      l2_method %in% c("sharp", "both") && !is.null(dots$folds) &&
+      is.finite(dots$folds) && dots$folds < 3L) {
+    warning("The sharp one-step estimator requires three disjoint roles; folds was promoted to 3")
+    dots$folds <- 3L
+  }
+  if (is.null(dots$diagnostic_control))
+    dots$diagnostic_control <- list(warn = FALSE, compute_hessian = FALSE)
   if (!is.null(dots$delta_K)) {
     dots$delta_A <- dots$delta_K
     dots$delta_K <- NULL
@@ -575,7 +682,8 @@ l2_compare_dr_plugin <- function(B = 200L, n = 1000L,
     if (l2_method %in% c("sharp", "both"))
       fits$sharp <- try(do.call(l2_sharp_crossfit, args), silent = TRUE)
     if (l2_method %in% c("cs", "both")) {
-      cs_args <- args; cs_args[c("basis", "control", "boundary_tol")] <- NULL
+      cs_args <- args
+      cs_args[c("basis", "control", "boundary_tol", "diagnostic_control")] <- NULL
       fits$cs <- try(do.call(l2_cs_crossfit, cs_args), silent = TRUE)
     }
     bad <- vapply(fits, inherits, logical(1), "try-error")
@@ -588,6 +696,10 @@ l2_compare_dr_plugin <- function(B = 200L, n = 1000L,
           function(ep) lapply(ep, `[[`, "dual")), recursive = FALSE)
         list(converged = all(vapply(duals, function(x) x$convergence == 0,
           logical(1))),
+          diagnostic_ok = all(vapply(duals, function(x) x$diagnostic_ok,
+            logical(1))),
+          diagnostic_codes = paste(unique(unlist(lapply(duals,
+            `[[`, "diagnostic_codes"))), collapse = ";"),
           gap = max(vapply(duals, function(x) abs(x$primal_dual_gap),
             numeric(1)), na.rm = TRUE),
           norm = max(vapply(duals, function(x) x$maximum_normalization_error,
@@ -597,12 +709,16 @@ l2_compare_dr_plugin <- function(B = 200L, n = 1000L,
           active = max(vapply(unlist(fits[[meth]]$diagnostics,
             recursive = FALSE), function(x) x$active_fraction,
             numeric(1)), na.rm = TRUE))
-      } else list(converged = NA, gap = NA, norm = NA, budget = NA, active = NA)
+      } else list(converged = NA, diagnostic_ok = NA,
+                  diagnostic_codes = "", gap = NA, norm = NA,
+                  budget = NA, active = NA)
       reps[[k]] <- data.frame(replication = b, bound_method = meth,
         estimator = zz$estimator,
         endpoint = zz$endpoint, estimate = zz$estimate, se = zz$se,
         truth = tv, covered = zz$conf_low <= tv & tv <= zz$conf_high,
         true_ate = dat$true_ate[1], optimizer_converged = opt$converged,
+        diagnostic_ok = opt$diagnostic_ok,
+        diagnostic_codes = opt$diagnostic_codes,
         maximum_primal_dual_gap = opt$gap,
         maximum_normalization_error = opt$norm,
         maximum_budget_violation = opt$budget,
@@ -619,8 +735,10 @@ l2_compare_dr_plugin <- function(B = 200L, n = 1000L,
     endpoint = x$endpoint[1], n_success = nrow(x),
     bias = mean(x$estimate - x$truth), rmse = sqrt(mean((x$estimate - x$truth)^2)),
     empirical_sd = stats::sd(x$estimate), mean_se = mean(x$se),
-    coverage = mean(x$covered))))
-  wide <- reshape(d[, c("replication", "bound_method", "estimator", "endpoint",
+    coverage = mean(x$covered),
+    diagnostic_flag_rate = if (all(is.na(x$diagnostic_ok))) NA_real_ else
+      mean(!x$diagnostic_ok, na.rm = TRUE))))
+  wide <- stats::reshape(d[, c("replication", "bound_method", "estimator", "endpoint",
                         "estimate", "se", "true_ate")],
                   idvar = c("replication", "bound_method", "estimator", "true_ate"),
                   timevar = "endpoint", direction = "wide")

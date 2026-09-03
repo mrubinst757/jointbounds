@@ -1,5 +1,25 @@
 # marbounds 0.3.0
 
+- Controlled nuisance-error simulations no longer claim or perform
+  cross-fitting: they directly perturb DGP nuisance functions on the full
+  simulated sample. Outcome regressions and CS conditional residual moments
+  now receive explicit errors. Sharp simulations recompute the dual solution
+  and dual loss H from the contaminated nuisances, while `true_eif` remains
+  the exact-nuisance diagnostic.
+
+- Sharp endpoint estimation now uses the manuscript's rotating three-stage
+  cross-fitting: structural nuisances/dual fitting, pseudo-outcome regression,
+  and final score evaluation are performed on disjoint folds.
+- Added `l2_calibration_band()` for combined influence-function pointwise and
+  simultaneous calibration-frontier bands obtained by inverting an evaluated
+  sensitivity grid.
+- Added explicit single-mechanism tests showing that the sharp sieve and
+  Cauchy--Schwarz formulas agree when only one L2 mechanism is active and the
+  normalization basis contains the relevant optimizer.
+- Corrected the legacy bounded-`delta` Psi2 estimator to apply its sensitivity
+  radius, use the proper positive-part influence scores, and preserve coherent
+  finite-sample endpoints by projecting nonnegative support estimates to zero.
+
 - Added l2_simulation_design() and l2_simulation_study() to reproduce the
   paper's finite-sample and sharpness experiments, with checkpointing, tidy
   operating-characteristic summaries, and publication-ready ggplot methods.

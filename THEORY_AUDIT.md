@@ -15,13 +15,13 @@ thus every implementation uses `R = 1 - C`.
 | Sharp empirical sieve program | `l2_bounds(method = "sharp")` | The dual KKT updates match the manuscript. Basis moments enforce normalization of both M and L. Diagnostics include divergence use, balance residuals, primal value, dual value, primal-dual gap, and maximum constraint violations. |
 | MAR-only and NUC-only special cases | Set `delta_A = 0` or the relevant missingness radius to zero | Zero missingness budgets now impose `M = 1` exactly rather than approximating the equality with a diverging multiplier. |
 | CS EIF estimator | `l2_cs_crossfit()` | Implements the weighted-central-moment EIF, including the `-4 nu_3 Z` correction for the fourth moment and all derivatives through `e` and `rho`. Both separated and net-M models are supported. |
-| Sharp augmented estimator | `l2_sharp_crossfit()` | Implements the respondent-law regression of H, inverse respondent augmentation, `d_e = E[sigma Y(M-L)|X]`, and the interior plus active-boundary terms in `d_rho`. Both separated and net-M models are supported. |
+| Sharp augmented estimator | `l2_sharp_crossfit()` | Implements the respondent-law regression of H, inverse respondent augmentation, `d_e = E[sigma Y(M-L)|X]`, and the interior plus active-boundary terms in `d_rho`. Structural nuisance/dual fitting, pseudo-outcome regression, and final score evaluation use disjoint folds in a rotating three-stage construction. Both separated and net-M models are supported. |
 | Pointwise and outward Wald inference | `l2_cs_crossfit()` and `l2_sharp_crossfit()` | Returns endpoint intervals, row-level influence scores, and an outward interval for the whole identified set. Plug-in standard errors are explicitly labeled as conditional on fitted nuisances. |
 | Simultaneous sensitivity bands | `l2_sensitivity_band()` and `l2_multiplier_band()` | Uses the standardized supremum multiplier process jointly over both endpoints and every evaluated grid point. |
 | L-infinity comparison | `l2_linf_bounds()` | Provides centered Holder outer bounds and a sharp empirical-sieve LP. The LP enforces both nonnegative likelihood ratios and `M >= 1-bar_pi`, including radii greater than one. |
 | Sensitivity surfaces and tipping | `l2_sensitivity_grid()` and `l2_tipping_frontier()` | The tipping frontier uses the first actual threshold crossing and linear interpolation; it no longer labels the merely closest non-crossing point as a tip. |
 | Joint covariate-omission calibration | `l2_aipw_benchmarks()`, `l2_benchmark_frontiers()`, and equal-radius helpers | The benchmark is reduced-adjustment minus full-adjustment. Its AIPW score is paired on the same observations. Frontier inversion uses the signed benchmark on the estimand scale. |
-| Calibration uncertainty | `l2_benchmark_band()` and `l2_equal_radius_comparison()` | The former supplies simultaneous AIPW benchmark intervals. The latter's transformed-radius intervals remain explicitly labeled as grid/Wald approximations. |
+| Calibration uncertainty | `l2_benchmark_band()`, `l2_calibration_band()`, and `l2_equal_radius_comparison()` | `l2_calibration_band()` combines endpoint and reduced-adjustment AIPW influence scores observation by observation and jointly inverts pointwise and multiplier bands over the sensitivity grid. `l2_equal_radius_comparison()` remains a simpler transformed-radius approximation. |
 | Binary composite and SDE prevalence bounds | `l2_prevalence_bounds()` | Implements the capped L2 support optimizer and the manuscript's fixed-q EIFs. It also includes the active norm-constraint multiplier term required because the norm is under the estimated `P_X`. |
 | Simulation and oracle checks | `simulate_l2_data()`, `l2_oracle_sensitivity_parameters()`, and `l2_compare_dr_plugin()` | Supports MAR, NUC, both, or neither; bounded or unbounded selection links; oracle sensitivity radii; sharp, CS, and L-infinity comparisons; and true-EIF nuisance-error experiments. |
 
@@ -60,3 +60,11 @@ thus every implementation uses `R = 1 - C`.
 10. Made frontier inversion add each benchmark discrepancy to its paired
     full-X AIPW estimate, so the calibration target is exactly the reduced-Z
     estimate rather than a separately fitted surface reference.
+11. Added rotating three-stage cross-fitting for the sharp one-step estimator.
+12. Added exact combined-score calibration-frontier bands and corresponding
+    grid inversion.
+13. Added tests for the single-mechanism sharp/CS equality when the sieve basis
+    represents the Cauchy--Schwarz optimizer.
+14. Corrected the legacy bounded-prevalence Psi2 influence-score implementation
+    and imposed a finite-sample coherence projection on its nonnegative support
+    terms.

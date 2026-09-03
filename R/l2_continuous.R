@@ -1,3 +1,236 @@
+l2_diagnostic_control <- function(x = list(), compute_hessian = TRUE) {
+  if (!is.list(x)) stop("diagnostic_control must be a list")
+  defaults <- list(
+    warn = TRUE, compute_hessian = compute_hessian,
+    normalization_tol = 1e-4, budget_abs_tol = 1e-6,
+    budget_rel_tol = 1e-2, gap_rel_tol = 1e-4,
+    multiplier_min = 1e-8, multiplier_max = 1e8,
+    curvature_rel_tol = 1e-8, condition_max = 1e12,
+    boundary_tol = 1e-6, boundary_fraction_warn = .99
+  )
+  unknown <- setdiff(names(x), names(defaults))
+  if (length(unknown))
+    stop("Unknown diagnostic_control entr", if (length(unknown) == 1L) "y: " else "ies: ",
+         paste(unknown, collapse = ", "))
+  out <- utils::modifyList(defaults, x)
+  for (nm in c("warn", "compute_hessian")) {
+    if (!is.logical(out[[nm]]) || length(out[[nm]]) != 1L || is.na(out[[nm]]))
+      stop("diagnostic_control$", nm, " must be TRUE or FALSE")
+  }
+  nonnegative <- c("normalization_tol", "budget_abs_tol", "budget_rel_tol",
+    "gap_rel_tol", "multiplier_min", "curvature_rel_tol", "boundary_tol")
+  positive <- c("multiplier_max", "condition_max")
+  for (nm in nonnegative) {
+    if (length(out[[nm]]) != 1L || !is.finite(out[[nm]]) || out[[nm]] < 0)
+      stop("diagnostic_control$", nm, " must be one nonnegative number")
+  }
+  for (nm in positive) {
+    if (length(out[[nm]]) != 1L || !is.finite(out[[nm]]) || out[[nm]] <= 0)
+      stop("diagnostic_control$", nm, " must be one positive number")
+  }
+  if (out$multiplier_min >= out$multiplier_max)
+    stop("diagnostic_control$multiplier_min must be less than multiplier_max")
+  if (length(out$boundary_fraction_warn) != 1L ||
+      !is.finite(out$boundary_fraction_warn) ||
+      out$boundary_fraction_warn < 0 || out$boundary_fraction_warn > 1)
+    stop("diagnostic_control$boundary_fraction_warn must lie between zero and one")
+  out
+}
+
+l2_hessian_diagnostics <- function(par, objective, cfg) {
+  empty <- list(hessian_computed = FALSE, hessian_ok = NA,
+    minimum_hessian_eigenvalue = NA_real_,
+    relative_minimum_hessian_eigenvalue = NA_real_,
+    hessian_condition_number = NA_real_)
+  if (!isTRUE(cfg$compute_hessian) || !length(par)) return(empty)
+  H <- try(stats::optimHess(par, objective), silent = TRUE)
+  if (inherits(H, "try-error") || any(!is.finite(H))) {
+    empty$hessian_computed <- TRUE
+    empty$hessian_ok <- FALSE
+    return(empty)
+  }
+  ev <- try(eigen((H + t(H)) / 2, symmetric = TRUE,
+                  only.values = TRUE)$values, silent = TRUE)
+  if (inherits(ev, "try-error") || any(!is.finite(ev))) {
+    empty$hessian_computed <- TRUE
+    empty$hessian_ok <- FALSE
+    return(empty)
+  }
+  scale <- max(abs(ev), 1)
+  min_ev <- min(ev)
+  cond <- if (min(abs(ev)) > 0) max(abs(ev)) / min(abs(ev)) else Inf
+  list(hessian_computed = TRUE, hessian_ok = TRUE,
+    minimum_hessian_eigenvalue = min_ev,
+    relative_minimum_hessian_eigenvalue = min_ev / scale,
+    hessian_condition_number = cond)
+}
+
+l2_finish_dual <- function(ans, model, sigma, rad_missingness, rad_K,
+                           diagnostic_control, hessian = NULL,
+                           hessian_expected = FALSE) {
+  cfg <- diagnostic_control
+  if (is.null(hessian)) hessian <- list(hessian_computed = FALSE,
+    hessian_ok = NA, minimum_hessian_eigenvalue = NA_real_,
+    relative_minimum_hessian_eigenvalue = NA_real_,
+    hessian_condition_number = NA_real_)
+  ans$lambda_missingness <- ans$lambda_R
+  ans$lambda_M <- if (model == "net") ans$lambda_R else NA_real_
+  ans$lambda_K <- ans$lambda_A
+  if (is.null(ans$boundary_M_fraction)) ans$boundary_M_fraction <- NA_real_
+  if (is.null(ans$boundary_K_fraction)) ans$boundary_K_fraction <- NA_real_
+  ans$missingness_budget <- rad_missingness^2
+  ans$confounding_budget <- rad_K^2
+  ans$missingness_budget_slack <- ans$missingness_budget - ans$divergence_R
+  ans$confounding_budget_slack <- ans$confounding_budget - ans$divergence_A
+  ans$missingness_budget_violation <- max(0, -ans$missingness_budget_slack)
+  ans$confounding_budget_violation <- max(0, -ans$confounding_budget_slack)
+  ans$missingness_budget_ratio <- if (ans$missingness_budget > 0)
+    ans$divergence_R / ans$missingness_budget else NA_real_
+  ans$confounding_budget_ratio <- if (ans$confounding_budget > 0)
+    ans$divergence_A / ans$confounding_budget else NA_real_
+  tol_M <- cfg$budget_abs_tol + cfg$budget_rel_tol * ans$missingness_budget
+  tol_K <- cfg$budget_abs_tol + cfg$budget_rel_tol * ans$confounding_budget
+  active_M <- ans$missingness_budget > 0 &&
+    !isTRUE(ans$fixed_missingness_tilt)
+  active_K <- ans$confounding_budget > 0 && !isTRUE(ans$no_confounding)
+  ans$missingness_budget_binding <- if (active_M)
+    abs(ans$missingness_budget_slack) <= tol_M else NA
+  ans$confounding_budget_binding <- if (active_K)
+    abs(ans$confounding_budget_slack) <= tol_K else NA
+  ans[names(hessian)] <- hessian
+
+  codes <- character()
+  if (!isTRUE(ans$convergence == 0L)) codes <- c(codes, "optimizer_nonconvergence")
+  if (!is.finite(ans$value) || !is.finite(ans$primal_value))
+    codes <- c(codes, "nonfinite_objective")
+  if (!is.finite(ans$maximum_normalization_error) ||
+      ans$maximum_normalization_error > cfg$normalization_tol)
+    codes <- c(codes, "normalization_error")
+  if (!is.finite(ans$missingness_budget_violation) ||
+      ans$missingness_budget_violation > tol_M)
+    codes <- c(codes, "missingness_budget_violation")
+  if (!is.finite(ans$confounding_budget_violation) ||
+      ans$confounding_budget_violation > tol_K)
+    codes <- c(codes, "confounding_budget_violation")
+  gap_tol <- cfg$gap_rel_tol * (1 + abs(ans$value))
+  if (!is.finite(ans$primal_dual_gap) || abs(ans$primal_dual_gap) > gap_tol)
+    codes <- c(codes, "primal_dual_gap")
+  if (active_M) {
+    if (!is.finite(ans$lambda_missingness) ||
+        ans$lambda_missingness < cfg$multiplier_min)
+      codes <- c(codes, "missingness_multiplier_near_zero")
+    if (is.finite(ans$lambda_missingness) &&
+        ans$lambda_missingness > cfg$multiplier_max)
+      codes <- c(codes, "missingness_multiplier_large")
+    if (ans$missingness_budget_slack > tol_M)
+      codes <- c(codes, "missingness_budget_slack")
+  }
+  if (active_K) {
+    if (!is.finite(ans$lambda_K) || ans$lambda_K < cfg$multiplier_min)
+      codes <- c(codes, "confounding_multiplier_near_zero")
+    if (is.finite(ans$lambda_K) && ans$lambda_K > cfg$multiplier_max)
+      codes <- c(codes, "confounding_multiplier_large")
+    if (ans$confounding_budget_slack > tol_K)
+      codes <- c(codes, "confounding_budget_slack")
+  }
+  if (isTRUE(cfg$compute_hessian) && isTRUE(hessian_expected)) {
+    if (!isTRUE(ans$hessian_ok)) codes <- c(codes, "hessian_unavailable")
+    if (isTRUE(ans$hessian_ok) &&
+        ans$relative_minimum_hessian_eigenvalue < -cfg$curvature_rel_tol)
+      codes <- c(codes, "negative_local_curvature")
+    if (isTRUE(ans$hessian_ok) &&
+        ans$relative_minimum_hessian_eigenvalue >= -cfg$curvature_rel_tol &&
+        ans$relative_minimum_hessian_eigenvalue < cfg$curvature_rel_tol)
+      codes <- c(codes, "weak_local_curvature")
+    if (isTRUE(ans$hessian_ok) &&
+        ans$hessian_condition_number > cfg$condition_max)
+      codes <- c(codes, "ill_conditioned_hessian")
+  }
+  if (is.finite(ans$boundary_M_fraction) &&
+      ans$boundary_M_fraction >= cfg$boundary_fraction_warn)
+    codes <- c(codes, "missingness_boundary_saturation")
+  if (is.finite(ans$boundary_K_fraction) &&
+      ans$boundary_K_fraction >= cfg$boundary_fraction_warn)
+    codes <- c(codes, "confounding_boundary_saturation")
+  ans$diagnostic_ok <- !length(codes)
+  ans$diagnostic_codes <- unique(codes)
+  ans$diagnostic_message <- if (length(codes))
+    paste(unique(codes), collapse = "; ") else "ok"
+  ans$model <- model
+  ans$sigma <- sigma
+  ans
+}
+
+l2_dual_diagnostic_row <- function(z, arm, endpoint) {
+  data.frame(
+    arm = arm, endpoint = endpoint, diagnostic_ok = z$diagnostic_ok,
+    diagnostic_codes = paste(z$diagnostic_codes, collapse = ";"),
+    convergence = z$convergence,
+    optimizer_message = if (is.null(z$message)) "" else as.character(z$message),
+    maximum_normalization_error = z$maximum_normalization_error,
+    maximum_budget_violation = z$maximum_budget_violation,
+    primal_dual_gap = z$primal_dual_gap,
+    lambda_missingness = z$lambda_missingness, lambda_K = z$lambda_K,
+    missingness_budget = z$missingness_budget,
+    missingness_divergence = z$divergence_R,
+    missingness_budget_violation = z$missingness_budget_violation,
+    missingness_budget_ratio = z$missingness_budget_ratio,
+    missingness_budget_binding = z$missingness_budget_binding,
+    confounding_budget = z$confounding_budget,
+    confounding_divergence = z$divergence_A,
+    confounding_budget_violation = z$confounding_budget_violation,
+    confounding_budget_ratio = z$confounding_budget_ratio,
+    confounding_budget_binding = z$confounding_budget_binding,
+    boundary_M_fraction = z$boundary_M_fraction,
+    boundary_K_fraction = z$boundary_K_fraction,
+    hessian_computed = z$hessian_computed,
+    minimum_hessian_eigenvalue = z$minimum_hessian_eigenvalue,
+    relative_minimum_hessian_eigenvalue = z$relative_minimum_hessian_eigenvalue,
+    hessian_condition_number = z$hessian_condition_number,
+    stringsAsFactors = FALSE
+  )
+}
+
+l2_diagnostic_summary <- function(tab, available = TRUE) {
+  if (!available || !nrow(tab)) return(data.frame(
+    diagnostic_available = FALSE, diagnostic_ok = NA,
+    n_endpoint_fits = 0L, n_flagged = 0L, flagged_codes = "",
+    stringsAsFactors = FALSE))
+  bad <- is.na(tab$diagnostic_ok) | !tab$diagnostic_ok
+  codes <- unique(unlist(strsplit(tab$diagnostic_codes[bad], ";", fixed = TRUE)))
+  codes <- codes[nzchar(codes)]
+  data.frame(diagnostic_available = TRUE, diagnostic_ok = !any(bad),
+    n_endpoint_fits = nrow(tab), n_flagged = sum(bad),
+    flagged_codes = paste(codes, collapse = ";"), stringsAsFactors = FALSE)
+}
+
+l2_warn_diagnostics <- function(summary, context = "Sharp-bound") {
+  bad <- which(summary$diagnostic_available &
+               (is.na(summary$diagnostic_ok) | !summary$diagnostic_ok))
+  if (!length(bad)) return(invisible(NULL))
+  codes <- unique(unlist(strsplit(summary$flagged_codes[bad], ";", fixed = TRUE)))
+  codes <- codes[nzchar(codes)]
+  ids <- if ("grid_id" %in% names(summary))
+    paste0(" Affected grid_id values: ",
+           paste(summary$grid_id[bad], collapse = ", "), ".") else ""
+  warning(sprintf(
+    "%s diagnostics flagged %d of %d fit%s.%s Inspect $diagnostic_summary and $diagnostic_table. Codes: %s",
+    context, length(bad), nrow(summary), if (nrow(summary) == 1L) "" else "s",
+    ids, paste(codes, collapse = ", ")), call. = FALSE)
+  invisible(NULL)
+}
+
+l2_diagnostic_note <- function() paste(
+  "A flagged fit is not automatically invalid. Numerical flags concern",
+  "optimizer convergence, normalization, budget feasibility, and the",
+  "primal-dual gap. Regularity flags concern inactive budgets or multipliers",
+  "near zero, weak/ill-conditioned local curvature, and near-total saturation",
+  "of a pointwise boundary. Hessian diagnostics are numerical and depend on",
+  "the optimizer parameterization. Inspect the endpoint rows before using",
+  "sharp-bound Wald inference; consider tighter optimization tolerances, a",
+  "different basis, bootstrap/directional inference, or the CS outer bounds."
+)
+
 #' Continuous-outcome L2 sensitivity bounds
 #'
 #' Implements the continuous-outcome sensitivity models in the companion paper.
@@ -25,6 +258,11 @@
 #' @param basis Optional formula used for conditional-normalization multipliers.
 #' @param seed Random seed used to construct folds.
 #' @param control Optional list passed to the empirical dual optimizer.
+#' @param diagnostic_control Optional list controlling sharp-solver diagnostics.
+#'   Set `warn = FALSE` to suppress the consolidated warning or
+#'   `compute_hessian = FALSE` to skip the local-curvature calculation. Other
+#'   entries set tolerances for normalization, budgets, primal--dual gap,
+#'   multipliers, curvature, and Hessian conditioning.
 #' @param keep_nuisance Return row-level nuisance estimates.
 #' @param return_true_bounds If `TRUE`, also compute the requested oracle Monte
 #'   Carlo CS and/or sharp-sieve bounds using DGP columns returned by
@@ -49,12 +287,15 @@ l2_bounds <- function(data, Y, A, C, X,
                       basis = NULL,
                       seed = 1L,
                       control = list(),
+                      diagnostic_control = list(),
                       keep_nuisance = FALSE,
                       return_true_bounds = FALSE,
                       delta_K = NULL) {
   model <- match.arg(model)
   method <- match.arg(method)
   nuisance_method <- match.arg(nuisance_method)
+  diagnostic_control <- l2_diagnostic_control(diagnostic_control,
+                                               compute_hessian = TRUE)
   delta <- l2_as_pair(delta, "delta", 1)
   delta_R <- l2_as_pair(delta_R, "delta_R")
   if (!is.null(delta_K)) delta_A <- delta_K
@@ -74,7 +315,8 @@ l2_bounds <- function(data, Y, A, C, X,
       nuisance = nuisance, basis = basis_mat,
       delta = delta[a + 1L], delta_R = delta_R[a + 1L],
       delta_A = delta_A[a + 1L], delta_M = delta_M[a + 1L],
-      model = model, method = method, control = control
+      model = model, method = method, control = control,
+      diagnostic_control = diagnostic_control
     )
   }
 
@@ -92,10 +334,23 @@ l2_bounds <- function(data, Y, A, C, X,
     ate$upper[j] <- z1$upper - z0$lower
   }
 
+  diagnostic_table <- if (method %in% c("sharp", "both"))
+    do.call(rbind, lapply(0:1, function(a) {
+      z <- arm[[a + 1L]]$diagnostics$sharp
+      rbind(l2_dual_diagnostic_row(z$lower, a, "lower"),
+            l2_dual_diagnostic_row(z$upper, a, "upper"))
+    })) else data.frame()
+  rownames(diagnostic_table) <- NULL
+  diagnostic_summary <- l2_diagnostic_summary(diagnostic_table,
+    available = method %in% c("sharp", "both"))
+
   out <- list(
     arm = arm_df,
     ate = ate,
     diagnostics = lapply(arm, `[[`, "diagnostics"),
+    diagnostic_table = diagnostic_table,
+    diagnostic_summary = diagnostic_summary,
+    diagnostic_note = l2_diagnostic_note(),
     parameters = list(delta = delta, delta_R = delta_R,
                       delta_A = delta_A, delta_K = delta_A, delta_M = delta_M,
                       model = model, method = method),
@@ -119,6 +374,8 @@ l2_bounds <- function(data, Y, A, C, X,
       "specified empirical normalization sieve and are unavailable for real data.")
   }
   class(out) <- "marbounds_l2"
+  if (isTRUE(diagnostic_control$warn))
+    l2_warn_diagnostics(diagnostic_summary, "Sharp-bound")
   out
 }
 
@@ -143,6 +400,12 @@ print.marbounds_l2 <- function(x, ...) {
   cat("Continuous-outcome L2 sensitivity bounds\n")
   cat("Model:", x$parameters$model, "\n\n")
   print(x$ate, row.names = FALSE)
+  if (!is.null(x$diagnostic_summary) &&
+      isTRUE(x$diagnostic_summary$diagnostic_available)) {
+    cat("\nSharp-solver diagnostics:",
+        if (isTRUE(x$diagnostic_summary$diagnostic_ok)) "all checks passed" else
+          paste(x$diagnostic_summary$n_flagged, "endpoint fits flagged"), "\n")
+  }
   invisible(x)
 }
 
@@ -361,7 +624,8 @@ l2_reference_quantities <- function(y, A, C, a, nuisance) {
 }
 
 l2_arm_bounds <- function(y, A, C, a, nuisance, basis, delta, delta_R,
-                          delta_A, delta_M, model, method, control) {
+                          delta_A, delta_M, model, method, control,
+                          diagnostic_control = list()) {
   r <- l2_reference_quantities(y, A, C, a, nuisance)
   b <- delta * r$pi
   VR <- mean(r$w * b^2 * r$z^2)
@@ -386,9 +650,11 @@ l2_arm_bounds <- function(y, A, C, a, nuisance, basis, delta, delta_R,
   }
   if (method %in% c("sharp", "both")) {
     lo <- l2_dual_arm(r, basis, b, delta_R, delta_A, delta_M,
-                      model, sigma = -1, control = control)
+                      model, sigma = -1, control = control,
+                      diagnostic_control = diagnostic_control)
     hi <- l2_dual_arm(r, basis, b, delta_R, delta_A, delta_M,
-                      model, sigma = 1, control = control)
+                      model, sigma = 1, control = control,
+                      diagnostic_control = diagnostic_control)
     rows[[length(rows) + 1L]] <- data.frame(
       arm = a, method = "sharp_sieve", lower = -lo$value,
       upper = hi$value, reference = r$psi
@@ -399,7 +665,8 @@ l2_arm_bounds <- function(y, A, C, a, nuisance, basis, delta, delta_R,
 }
 
 l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
-                        model, sigma, control) {
+                        model, sigma, control,
+                        diagnostic_control = list()) {
   use <- which(r$obs)
   if (!length(use)) stop("No observed outcomes in arm")
   y <- r$y[use]; e <- r$e[use]; q <- r$q[use]
@@ -408,6 +675,11 @@ l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
   p <- ncol(BB)
   eps <- 1e-8
   radR <- if (model == "separated") delta_R else delta_M
+  diagnostic_control <- l2_diagnostic_control(diagnostic_control,
+                                               compute_hessian = FALSE)
+  finish <- function(ans, hessian = NULL, hessian_expected = FALSE)
+    l2_finish_dual(ans, model, sigma, radR, delta_A,
+                   diagnostic_control, hessian, hessian_expected)
   fixed_M <- radR == 0 || (model == "separated" && all(bb <= eps))
   if (fixed_M) {
     ## A zero missingness budget (or a zero prevalence envelope everywhere)
@@ -416,7 +688,7 @@ l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
     ## infinity.
     if (delta_A == 0) {
       primal <- sum(ww * sigma * y)
-      return(list(value = primal, convergence = 0L,
+      return(finish(list(value = primal, convergence = 0L,
         message = "Both divergence components are fixed at their null values",
         lambda_R = 0, lambda_A = 0, divergence_R = 0,
         divergence_A = 0, normalization_M = rep(0, p),
@@ -424,7 +696,8 @@ l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
         coefficients = c(Inf, Inf, rep(0, 2 * p)),
         primal_value = primal, primal_dual_gap = 0,
         maximum_normalization_error = 0, maximum_budget_violation = 0,
-        fixed_missingness_tilt = TRUE, no_confounding = TRUE))
+        fixed_missingness_tilt = TRUE, no_confounding = TRUE,
+        boundary_M_fraction = 0, boundary_K_fraction = 0)))
     }
     objectiveA <- function(par, details = FALSE) {
       lamA <- exp(par[1])
@@ -443,9 +716,13 @@ l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
     ctlA <- utils::modifyList(list(maxit = 1000, reltol = 1e-9), control)
     fitA <- stats::optim(initA, objectiveA, method = "BFGS", control = ctlA)
     detA <- objectiveA(fitA$par, details = TRUE)
+    hessA <- l2_hessian_diagnostics(fitA$par, objectiveA,
+                                    diagnostic_control)
     max_norm <- max(abs(detA$normL), 0)
     max_budget <- max(0, detA$divA - delta_A^2)
-    return(list(value = detA$value, convergence = fitA$convergence,
+    boundary_K <- sum(ww * (detA$L <= diagnostic_control$boundary_tol)) /
+      sum(ww)
+    return(finish(list(value = detA$value, convergence = fitA$convergence,
       message = fitA$message, lambda_R = 0, lambda_A = detA$lamA,
       divergence_R = 0, divergence_A = detA$divA,
       normalization_M = rep(0, p), normalization_L = detA$normL,
@@ -454,7 +731,8 @@ l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
       primal_dual_gap = detA$value - detA$primal,
       maximum_normalization_error = max_norm,
       maximum_budget_violation = max_budget,
-      fixed_missingness_tilt = TRUE))
+      fixed_missingness_tilt = TRUE, boundary_M_fraction = 0,
+      boundary_K_fraction = boundary_K), hessA, hessian_expected = TRUE))
   }
   if (delta_A == 0) {
     objective0 <- function(par, details = FALSE) {
@@ -483,10 +761,15 @@ l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
     ctl0 <- utils::modifyList(list(maxit = 1000, reltol = 1e-9), control)
     fit0 <- stats::optim(init0, objective0, method = "BFGS", control = ctl0)
     det0 <- objective0(fit0$par, details = TRUE)
+    hess0 <- l2_hessian_diagnostics(fit0$par, objective0,
+                                    diagnostic_control)
     full_par <- c(fit0$par[1], Inf, fit0$par[-1], rep(0, p))
     max_norm <- max(abs(det0$normM), 0)
     max_budget <- max(0, det0$divR - radR^2)
-    return(list(value = det0$value, convergence = fit0$convergence,
+    lower_M <- if (model == "separated") 1 - bb else rho
+    boundary_M <- sum(ww * (det0$M <= lower_M +
+      diagnostic_control$boundary_tol)) / sum(ww)
+    return(finish(list(value = det0$value, convergence = fit0$convergence,
       message = fit0$message, lambda_R = det0$lamR, lambda_A = Inf,
       divergence_R = det0$divR, divergence_A = 0,
       normalization_M = det0$normM, normalization_L = det0$normM,
@@ -494,7 +777,9 @@ l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
       primal_value = det0$primal,
       primal_dual_gap = det0$value - det0$primal,
       maximum_normalization_error = max_norm,
-      maximum_budget_violation = max_budget))
+      maximum_budget_violation = max_budget,
+      boundary_M_fraction = boundary_M, boundary_K_fraction = 0), hess0,
+      hessian_expected = TRUE))
   }
   objective <- function(par, details = FALSE) {
     lamR <- exp(par[1]); lamA <- exp(par[2])
@@ -531,17 +816,26 @@ l2_dual_arm <- function(r, B, b, delta_R, delta_A, delta_M,
   ctl <- utils::modifyList(list(maxit = 1000, reltol = 1e-9), control)
   fit <- stats::optim(init, objective, method = "BFGS", control = ctl)
   det <- objective(fit$par, details = TRUE)
+  hess <- l2_hessian_diagnostics(fit$par, objective, diagnostic_control)
   max_norm <- max(abs(c(det$normM, det$normL)), 0)
   max_budget <- max(0, det$divR - radR^2,
                     det$divA - delta_A^2)
-  list(value = det$value, convergence = fit$convergence, message = fit$message,
+  lower_M <- if (model == "separated") 1 - bb else rho
+  boundary_M <- sum(ww * (det$M <= lower_M +
+    diagnostic_control$boundary_tol)) / sum(ww)
+  boundary_K <- sum(ww * (det$K <= diagnostic_control$boundary_tol)) /
+    sum(ww)
+  finish(list(value = det$value, convergence = fit$convergence, message = fit$message,
        lambda_R = det$lamR, lambda_A = det$lamA,
        divergence_R = det$divR, divergence_A = det$divA,
        normalization_M = det$normM, normalization_L = det$normL,
        coefficients = fit$par, primal_value = det$primal,
        primal_dual_gap = det$value - det$primal,
        maximum_normalization_error = max_norm,
-       maximum_budget_violation = max_budget)
+       maximum_budget_violation = max_budget,
+       boundary_M_fraction = boundary_M,
+       boundary_K_fraction = boundary_K), hess,
+       hessian_expected = TRUE)
 }
 
 l2_moment_check <- function(y) {
@@ -797,7 +1091,8 @@ l2_oracle_cs <- function(data, delta, delta_R, delta_A, delta_M, model) {
 #'   `delta`, `delta_M`. Scalar columns are applied to both arms; arm-specific
 #'   columns may be supplied with suffixes `_0` and `_1`.
 #' @return An object of class `marbounds_l2_grid` with one ATE row per method
-#'   and grid point.
+#'   and grid point, endpoint-level diagnostics for every sharp-bound fit, and
+#'   one diagnostic summary row per sensitivity-parameter pair.
 #' @export
 l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
                                 delta = c(1, 1), model = c("net", "separated"),
@@ -806,9 +1101,14 @@ l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
                                 sl_lib_prop = "SL.glm",
                                 sl_lib_miss = "SL.glm",
                                 sl_lib_outcome = "SL.glm",
-                                basis = NULL, seed = 1L, control = list()) {
+                                basis = NULL, seed = 1L, control = list(),
+                                diagnostic_control = list()) {
   model <- match.arg(model); method <- match.arg(method)
   nuisance_method <- match.arg(nuisance_method)
+  diagnostic_control <- l2_diagnostic_control(diagnostic_control,
+                                               compute_hessian = TRUE)
+  quiet_diagnostics <- diagnostic_control
+  quiet_diagnostics$warn <- FALSE
   if (!is.data.frame(grid) || !nrow(grid)) stop("grid must be a nonempty data frame")
   pair <- function(row, nm, default) {
     if (all(paste0(nm, c("_0", "_1")) %in% names(row)))
@@ -817,6 +1117,9 @@ l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
     default
   }
   ans <- vector("list", nrow(grid))
+  diagnostic_rows <- vector("list", nrow(grid))
+  diagnostic_summaries <- vector("list", nrow(grid))
+  raw_diagnostics <- vector("list", nrow(grid))
   for (i in seq_len(nrow(grid))) {
     rr <- pair(grid[i, , drop = FALSE], "delta_R", c(0, 0))
     aa <- pair(grid[i, , drop = FALSE], "delta_K",
@@ -829,14 +1132,53 @@ l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
                      nuisance_method = nuisance_method,
                      sl_lib_prop = sl_lib_prop, sl_lib_miss = sl_lib_miss,
                      sl_lib_outcome = sl_lib_outcome,
-                     seed = seed, control = control)
+                     seed = seed, control = control,
+                     diagnostic_control = quiet_diagnostics)
     z <- fit$ate
     z$grid_id <- i
+    sm <- fit$diagnostic_summary
+    sm$grid_id <- i
+    sm <- cbind(grid[i, , drop = FALSE], sm)
+    diagnostic_summaries[[i]] <- sm
+    z$diagnostic_available <- sm$diagnostic_available
+    z$diagnostic_ok <- sm$diagnostic_ok
+    z$n_diagnostic_flags <- sm$n_flagged
+    if (nrow(fit$diagnostic_table)) {
+      dt <- fit$diagnostic_table
+      dt$grid_id <- i
+      diagnostic_rows[[i]] <- cbind(grid[rep(i, nrow(dt)), , drop = FALSE], dt)
+    } else diagnostic_rows[[i]] <- data.frame()
+    raw_diagnostics[[i]] <- fit$diagnostics
     ans[[i]] <- cbind(grid[rep(i, nrow(z)), , drop = FALSE], z)
   }
-  out <- list(results = do.call(rbind, ans), call = match.call())
+  diagnostic_table <- do.call(rbind, diagnostic_rows)
+  diagnostic_summary <- do.call(rbind, diagnostic_summaries)
+  rownames(diagnostic_table) <- NULL
+  rownames(diagnostic_summary) <- NULL
+  out <- list(results = do.call(rbind, ans),
+              diagnostic_table = diagnostic_table,
+              diagnostic_summary = diagnostic_summary,
+              diagnostics = raw_diagnostics,
+              diagnostic_note = l2_diagnostic_note(),
+              call = match.call())
   class(out) <- "marbounds_l2_grid"
+  if (isTRUE(diagnostic_control$warn))
+    l2_warn_diagnostics(diagnostic_summary, "Sensitivity-grid")
   out
+}
+
+#' @export
+print.marbounds_l2_grid <- function(x, ...) {
+  cat("Continuous-outcome L2 sensitivity grid\n")
+  cat("Grid points:", nrow(x$diagnostic_summary), "\n")
+  if (any(x$diagnostic_summary$diagnostic_available)) {
+    n_bad <- sum(x$diagnostic_summary$diagnostic_available &
+                 !x$diagnostic_summary$diagnostic_ok)
+    cat("Sharp-solver diagnostics:",
+        if (n_bad) paste(n_bad, "grid pairs flagged") else
+          "all grid pairs passed", "\n")
+  }
+  invisible(x)
 }
 
 #' Extract a tipping frontier from an L2 sensitivity grid
@@ -1120,7 +1462,9 @@ l2_bootstrap <- function(data, Y, A, C, X,
                           sl_lib_prop = sl_lib_prop, sl_lib_miss = sl_lib_miss,
                           sl_lib_outcome = sl_lib_outcome,
                           basis = basis, seed = seeds[b],
-                         control = control), silent = TRUE)
+                         control = control,
+                         diagnostic_control = list(warn = FALSE,
+                           compute_hessian = FALSE)), silent = TRUE)
     if (!inherits(fit, "try-error")) reps[b, ] <- unlist(fit$ate[1, c("lower", "upper")])
   }
   ok <- stats::complete.cases(reps)

@@ -26,6 +26,20 @@ l2_equal_radius_comparison(
 
 \method{plot}{marbounds_l2_equal_radius_comparison}(x, ...)
 }
+\arguments{
+  \item{surface}{A sensitivity-grid object or its results data frame.}
+  \item{benchmarks}{Output from \code{l2_aipw_benchmarks()} or its results data frame.}
+  \item{estimator}{Benchmark estimator to invert.}
+  \item{radius_x, radius_y}{Names of the two sensitivity-radius columns.}
+  \item{plot}{Whether to draw the returned comparison.}
+  \item{x}{A frontier or equal-radius comparison object.}
+  \item{facet_pz}{Whether to facet the benchmark plot by retained-set size.}
+  \item{...}{Additional plotting arguments.}
+  \item{threshold}{Null value for the overall ATE.}
+  \item{frontiers}{Output from \code{l2_benchmark_frontiers()}.}
+  \item{uncertainty}{Whether to include transformed benchmark and overall uncertainty.}
+  \item{conf_level}{Confidence level used when \code{uncertainty = TRUE}.}
+}
 \description{Computes and plots the joint MAR/NUC radius frontier capable of
 producing every supplied leave-covariate-out effect discrepancy.}
 \value{A plot-ready data frame with one frontier per benchmark and method.

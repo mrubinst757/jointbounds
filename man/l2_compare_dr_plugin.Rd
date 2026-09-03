@@ -28,8 +28,9 @@ l2_compare_dr_plugin(
   \item{truth_n}{Reference-sample size when \code{truth} is not supplied.}
   \item{seed}{Random seed.}
   \item{conf_level}{Wald confidence level.}
-  \item{nuisance_simulation}{\code{"oracle_error"} uses fast, controlled
-  nuisance perturbations; \code{"estimated"} refits the requested learners.}
+  \item{nuisance_simulation}{\code{"oracle_error"} directly perturbs known DGP
+  nuisance functions without cross-fitting; \code{"estimated"} cross-fits the
+  requested learners.}
   \item{parameter_evaluation}{\code{"auto"} uses oracle parameters if no
   sensitivity parameters are supplied; \code{"oracle"} always uses them;
   \code{"specified"} evaluates the supplied or function-default values.}

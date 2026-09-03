@@ -58,6 +58,22 @@ test_that("compute_bounds point_psi2 works with pi0 and mu1", {
   expect_true(is.finite(out$estimate))
 })
 
+test_that("zero informative-missingness radius collapses Psi2 bounds", {
+  set.seed(18)
+  phi <- matrix(stats::rnorm(600), 100, 6)
+  mu0 <- stats::runif(100, -.2, .4)
+  mu1 <- stats::runif(100, 0, .7)
+  pi0 <- stats::runif(100, .05, .4)
+  for (smooth in c(FALSE, TRUE)) {
+    out <- marbounds:::compute_bounds(phi, estimand = "psi2",
+      assumption = "bounded_delta", delta_0u = 0,
+      mu0 = mu0, mu1 = mu1, pi0 = pi0,
+      smooth_approximation = smooth, epsilon = .01)
+    expect_equal(out$lower, out$naive)
+    expect_equal(out$upper, out$naive)
+  }
+})
+
 test_that("coefficient vectors have length 6", {
   expect_length(marbounds:::coef_general_lower_ate(), 6)
   expect_length(marbounds:::coef_general_upper_ate(), 6)

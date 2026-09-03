@@ -8,7 +8,7 @@ l2_simulation_study(
   design = l2_simulation_design("main"), B = 1000L,
   truth_n = 100000L, seed = 202608L, conf_level = 0.95,
   l2_method = c("both", "sharp", "cs"),
-  linf_method = c("outer", "both", "sharp"), folds = 2L,
+  linf_method = c("outer", "both", "sharp"), folds = 3L,
   progress = interactive(), continue_on_error = TRUE,
   checkpoint_file = NULL, ...
 )
@@ -25,7 +25,8 @@ l2_simulation_study(
   \item{seed}{Master seed.}
   \item{conf_level}{Wald confidence level.}
   \item{l2_method, linf_method}{Bound methods to compute.}
-  \item{folds}{Number of cross-fitting folds.}
+  \item{folds}{Number of cross-fitting folds. At least three are required when
+  sharp one-step estimators are included.}
   \item{progress}{Whether to print scenario progress.}
   \item{continue_on_error}{Whether to record a failure and continue.}
   \item{checkpoint_file}{Optional RDS checkpoint path.}
@@ -43,7 +44,7 @@ and Cauchy--Schwarz estimators, and L-infinity comparisons.}
 \examples{
 \dontrun{
 s <- l2_simulation_study(l2_simulation_design("fast"), B = 100,
-  truth_n = 20000, folds = 2)
+  truth_n = 20000, folds = 3)
 plot(s, "coverage")
 }
 }

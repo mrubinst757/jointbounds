@@ -20,8 +20,9 @@ l2_cs_crossfit(
   nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed}{As in
   \code{l2_bounds()}.}
   \item{conf_level}{Wald confidence level.}
-  \item{nuisance_source}{Estimated nuisances or controlled oracle-error
-  perturbations for simulation.}
+  \item{nuisance_source}{Cross-fitted estimated nuisances or controlled
+  oracle-error perturbations for simulation. Controlled errors are constructed
+  directly and use no sample splitting.}
   \item{nuisance_error_rate, nuisance_error_scale, nuisance_error_sign}{Controls
   for the oracle-error simulation mode; see \code{l2_sharp_crossfit()}.}
 }
@@ -29,9 +30,16 @@ l2_cs_crossfit(
 cross-fitted plug-in moments and the analytic influence functions for the
 reference mean, second moments, and fourth interaction moment.}
 \value{Arm and ATE endpoint estimates, standard errors, confidence intervals,
-outward identified-set intervals, influence scores, and fold identifiers.}
+outward identified-set intervals, influence scores, and fold identifiers. For
+data returned by \code{simulate_l2_data()}, the output also contains a
+\code{true_eif} diagnostic that evaluates the EIF one-step estimator using the
+known nuisance functions.}
 \details{The EIF estimator is Neyman-orthogonal rather than generically
 exactly doubly robust. The manuscript's product-rate conditions, plus moments
 bounded away from zero for the square-root delta method, imply root-n
 asymptotic linearity. A finite eighth outcome moment is a simple sufficient
-condition for finite variance of the fourth-moment endpoint score.}
+condition for finite variance of the fourth-moment endpoint score.
+In controlled-error mode, \eqn{e_a}, \eqn{rho_a}, \eqn{mu_a}, and the
+conditional residual moments \eqn{nu_{k,a}} receive separate errors of the
+specified order; no regressions are fitted.
+}

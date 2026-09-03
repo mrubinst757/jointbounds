@@ -13,15 +13,20 @@ Description: Implements influence-function-based estimators for bounds on causal
   include closed-form outer bounds, empirical sharp sieve-dual bounds, reduced-form
   net-missingness bounds, sensitivity grids, tipping frontiers, and simulation.
   Nuisance functions are estimated with cross-fitting. Sharp continuous-outcome
-  endpoints support both plug-in and augmented doubly robust evaluation.
+  endpoints support both plug-in and augmented doubly robust evaluation. A
+  standalone cross-fitted augmented inverse-probability weighted estimator
+  provides point estimation under MAR and no unmeasured confounding.
   The package also implements reduced-form influence-function estimators,
   multiplier simultaneous bands, L-infinity outer and sharp-sieve comparisons,
   capped L2 prevalence bounds for binary composite and separable effects,
-  covariate-omission calibration, and simulation tools for comparing endpoint
+  covariate-omission calibration with combined influence-function frontier
+  bands, and simulation tools for comparing endpoint
   bias and coverage. Prespecified simulation-study drivers vary overlap,
   missingness prevalence and severity, nuisance complexity, concentration,
   and outcome tails, and separately assess AIPW calibration benchmarks.
 License: MIT + file LICENSE
+URL: https://github.com/mdrubinstein/jointbounds
+BugReports: https://github.com/mdrubinstein/jointbounds/issues
 Encoding: UTF-8
 Imports:
   SuperLearner,

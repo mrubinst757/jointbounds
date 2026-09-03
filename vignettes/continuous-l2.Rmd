@@ -54,6 +54,27 @@ The last quantity is only an empirical diagnostic. No finite dataset can prove
 that a population fourth moment exists; that condition must also be justified
 from the outcome's scientific and statistical model.
 
+## Point-identified ATE under MAR and no unmeasured confounding
+
+When both identifying assumptions are maintained, `generate_ate()` returns the
+cross-fitted AIPW estimate of the ATE, arm-specific means, Wald intervals,
+influence scores, and positivity diagnostics:
+
+```{r identified-ate}
+identified_dat <- simulate_l2_data(1000, violation = "none", seed = 2027)
+identified <- generate_ate(
+  identified_dat, "Y", "A", "C", c("X1", "X2"),
+  folds = 5, nuisance_method = "SuperLearner"
+)
+identified$ate
+identified$diagnostic_summary
+```
+
+The estimator is consistent if the outcome regressions are correct or if the
+arm-specific joint treatment-and-response probabilities are correct. This is
+the point-identified baseline to which the sensitivity intervals can be
+compared.
+
 ## Closed-form outer bounds
 
 ```{r cs}
@@ -91,13 +112,23 @@ sharp <- l2_bounds(
   basis = ~ X1 + X2 + I(X1^2) + I(X2^2)
 )
 sharp$ate
-sharp$diagnostics
+sharp$diagnostic_summary
+sharp$diagnostic_table
 ```
 
-The diagnostics report the primal value, dual value, primal--dual gap, achieved
-divergence budgets, and residual moments for the conditional-normalization
-basis. Material residuals, budget violations, gaps, or optimizer nonconvergence
-indicate that the numerical result should not be reported as a sharp value.
+The endpoint-level table reports optimizer convergence, the primal--dual gap,
+normalization error, achieved-versus-allowed divergence budgets, the two global
+multipliers, the fraction of observations on each pointwise boundary, and local
+Hessian curvature. The one-row summary says whether any endpoint was flagged.
+A fit can converge numerically but still receive a regularity flag because a
+budget is slack, a multiplier is nearly zero, or local curvature is weak. The
+function issues one consolidated warning rather than a separate warning for
+each check. The original nested output remains in `sharp$diagnostics`.
+
+Diagnostic tolerances can be changed with `diagnostic_control`; for example,
+`diagnostic_control = list(compute_hessian = FALSE)` skips the additional local
+curvature calculation, while `warn = FALSE` suppresses only the warning and not
+the returned diagnostics.
 
 ### Cross-fitted plug-in and DR inference
 
@@ -132,10 +163,10 @@ large-sample empirical-sieve reference and labels it as such.
 mc <- l2_compare_dr_plugin(
   B = 500, n = 1000, truth_n = 50000,
   delta_M = .20, delta_K = .15, model = "net",
-  folds = 5, nuisance_simulation = "oracle_error",
+  nuisance_simulation = "oracle_error",
   nuisance_error_rate = .25,
-  nuisance_error_scale = c(e = 1, rho = 1, regression = 1),
-  nuisance_error_sign = c(e = 1, rho = -1, regression = 1)
+  nuisance_error_scale = c(e = 1, rho = 1, mu = 1, regression = 1),
+  nuisance_error_sign = c(e = 1, rho = -1, mu = 1, regression = -1)
 )
 mc$summary
 mc$bound_coverage
@@ -152,7 +183,7 @@ tidy endpoint, confidence-set, width, mechanism, and optimizer summaries.
 
 ```{r paper-simulation, eval=FALSE}
 design <- l2_simulation_design("fast")
-study <- l2_simulation_study(design, B = 10, truth_n = 2000, folds = 2)
+study <- l2_simulation_study(design, B = 10, truth_n = 2000, folds = 3)
 study$endpoint_summary
 study$set_coverage
 plot(study, "coverage")
@@ -166,9 +197,12 @@ calibration_mc$summary
 Every comparison reports `plugin`, `dr` (the EIF with the specified nuisance
 errors), and `true_eif`. The last uses exact DGP treatment and response
 probabilities and numerical integration under the known conditional respondent
-outcome law. The sign vector controls the three perturbation directions
-independently; by default the propensity and response errors have opposite
-signs.
+outcome law. In controlled-error mode the code fits no regressions and therefore
+does not cross-fit. It directly perturbs the treatment, response, outcome-
+regression, and second-stage conditional-regression functions. For the sharp
+bound it also recomputes the dual solution and (H) using the perturbed
+nuisances. For the CS bound, the conditional residual moments are perturbed
+separately from (mu_a).
 
 The minimal oracle parameters are returned on every run. If no sensitivity
 radii are supplied, `parameter_evaluation = "auto"`
@@ -226,6 +260,24 @@ and `delta_K` for the mechanistic comparison.
 Both cross-fitted inference functions also accept `model = "net"` and
 `delta_M`.
 
+The same interface nests analyses that maintain one identifying assumption.
+Set `delta_M = 0` to maintain MAR and vary only `delta_K`; set
+`delta_K = 0` to maintain conditional exchangeability and vary only
+`delta_M`. When the corresponding affine density-ratio extremizer satisfies
+the pointwise restriction and the basis enforces the needed normalization,
+the sharp and Cauchy--Schwarz endpoints coincide.
+
+```{r single-mechanism}
+nuc_only <- l2_bounds(
+  dat, "Y", "A", "C", c("X1", "X2"),
+  delta_M = 0, delta_K = .15, model = "net", method = "both"
+)
+mar_only <- l2_bounds(
+  dat, "Y", "A", "C", c("X1", "X2"),
+  delta_M = .12, delta_K = 0, model = "net", method = "both"
+)
+```
+
 ## Sensitivity surface and tipping frontier
 
 ```{r grid}
@@ -242,6 +294,11 @@ frontier <- l2_tipping_frontier(surface, threshold = 0, endpoint = "lower")
 if (any(frontier$tipped_on_grid)) plot(frontier)
 ```
 
+When `method` includes `"sharp"`, `surface$diagnostic_table` has four rows per
+grid pair (two arms by two endpoints), and `surface$diagnostic_summary` has one
+row per pair. A consolidated warning lists the affected `grid_id` values, so a
+large surface does not produce a stream of endpoint-specific warnings.
+
 Groups for which the null is not reached have `tipped_on_grid = FALSE` rather
 than being mislabeled with the closest grid point.
 
@@ -252,7 +309,7 @@ scores on a common grid and apply the paper's multiplier process:
 band <- l2_sensitivity_band(
   dat, "Y", "A", "C", c("X1", "X2"), grid,
   model = "net", bound_method = "cs", estimator = "eif",
-  folds = 5, B = 1000
+  folds = 5, B = 1000, keep_fits = TRUE
 )
 band$outward
 ```
@@ -298,6 +355,8 @@ bench <- l2_aipw_benchmarks(
   estimator = "aipw", variance = TRUE
 )
 bench_band <- l2_benchmark_band(bench, B = 1000)
+frontier_band <- l2_calibration_band(band, bench, B = 1000)
+plot(frontier_band)
 calibrated <- l2_benchmark_frontiers(surface, bench)
 l2_equal_radius_comparison(surface, calibrated, plot = TRUE)
 ```

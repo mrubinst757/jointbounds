@@ -2,13 +2,15 @@
 \alias{l2_basis_approximation}
 \title{Compare sharp-sieve bounds across normalization bases}
 \usage{
-l2_basis_approximation(data, parameters = NULL, bases = NULL, control = list())
+l2_basis_approximation(data, parameters = NULL, bases = NULL, control = list(),
+  model = c("net", "separated"))
 }
 \arguments{
   \item{data}{Data returned by \code{simulate_l2_data()}.}
   \item{parameters}{Optional oracle sensitivity parameters.}
   \item{bases}{Named list of normalization-basis formulas.}
   \item{control}{Optimizer control list.}
+  \item{model}{Sensitivity-model parameterization to compare.}
 }
 \value{A data frame containing endpoints, width, and excess width relative to
 the richest supplied basis.}

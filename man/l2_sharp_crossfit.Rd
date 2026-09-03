@@ -8,7 +8,8 @@ l2_sharp_crossfit(
   model = c("net", "separated"), folds = 5L, basis = NULL,
   nuisance_method = c("SuperLearner", "glm"), sl_lib_prop = "SL.glm",
   sl_lib_miss = "SL.glm", sl_lib_outcome = "SL.glm", seed = 1L,
-  control = list(), conf_level = 0.95, boundary_tol = 1e-7,
+  control = list(), diagnostic_control = list(), conf_level = 0.95,
+  boundary_tol = 1e-7,
   nuisance_source = c("estimated", "oracle_error"),
   nuisance_error_rate = 0.25, nuisance_error_scale = 1,
   nuisance_error_sign = c(e = 1, rho = -1, regression = 1),
@@ -16,25 +17,35 @@ l2_sharp_crossfit(
 )
 }
 \arguments{
-  \item{data, Y, A, C, X, delta, delta_R, delta_A, delta_K, delta_M, model, folds, basis,
-  nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed, control}{As
+  \item{data, Y, A, C, X, delta, delta_R, delta_A, delta_K, delta_M, model, basis,
+  nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed, control,
+  diagnostic_control}{As
   in \code{l2_bounds()}. Both the separated and reduced-form net-M models are
   supported.}
+  \item{folds}{Number of cross-fitting folds when nuisances are fitted. At
+  least three are used so structural nuisance and dual fitting, pseudo-outcome
+  regression, and final score evaluation use disjoint observations. This
+  argument is ignored in controlled-error simulations, which fit no regressions.}
   \item{conf_level}{Wald confidence level.}
   \item{boundary_tol}{Tolerance for declaring the mixture lower envelope active.}
-  \item{nuisance_source}{Use fitted nuisance models, or controlled perturbations
-  of oracle nuisance functions. The latter requires simulated DGP columns.}
+  \item{nuisance_source}{Use cross-fitted nuisance models, or directly
+  construct nuisance estimates by adding controlled errors to known DGP
+  functions. The latter requires simulated DGP columns and uses no sample
+  splitting.}
   \item{nuisance_error_rate}{Exponent alpha in the error magnitude
   \eqn{n^{-\alpha}}. Set this to zero for fixed misspecification.}
   \item{nuisance_error_scale}{Scalar or named vector with entries \code{e},
-  \code{rho}, and \code{regression}; the last controls errors in the
-  conditional loss and derivative regressions.}
+  \code{rho}, \code{mu}, and \code{regression}; the last controls errors in the
+  conditional loss and derivative regressions. A legacy three-entry vector
+  uses the regression magnitude for \code{mu}.}
   \item{nuisance_error_sign}{Independently configurable signs, each equal to
-  -1 or 1, for the \code{e}, \code{rho}, and \code{regression} errors.}
+  -1 or 1, for the \code{e}, \code{rho}, \code{mu}, and \code{regression} errors.}
 }
 \value{A list containing arm and ATE endpoint estimates, standard errors,
 confidence intervals, outward identified-set intervals, influence scores,
-fold identifiers, and dual and active-set diagnostics. For simulated DGP data,
+fold identifiers, an endpoint-by-fold diagnostic table, a consolidated
+diagnostic summary, and the original nested dual and active-set diagnostics.
+For simulated DGP data,
 \code{true_eif} uses exact
 sampling scores and quadrature-based conditional EIF regressions.}
 \description{
@@ -44,6 +55,9 @@ estimator estimates the conditional dual-loss regression and the conditional
 derivative regressions for the structural propensity and response probability.
 The response derivative includes the KKT multiplier when the moving mixture
 lower envelope binds.
+In controlled-error simulations, the dual solution and \eqn{H} are recomputed
+from perturbed structural nuisances, while the conditional loss and derivative
+regressions are separately perturbed around their DGP values.
 }
 \details{
 Double robustness applies to evaluation of a fixed correctly specified dual

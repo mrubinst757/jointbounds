@@ -1,5 +1,6 @@
 \name{l2_sensitivity_grid}
 \alias{l2_sensitivity_grid}
+\alias{print.marbounds_l2_grid}
 \alias{l2_tipping_frontier}
 \alias{plot.marbounds_l2_frontier}
 \title{Continuous-outcome L2 sensitivity surfaces and tipping frontiers}
@@ -9,14 +10,16 @@ l2_sensitivity_grid(data, Y, A, C, X, grid, delta = c(1, 1),
   folds = 5L, nuisance_method = c("SuperLearner", "glm"),
   sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
   sl_lib_outcome = "SL.glm", basis = NULL, seed = 1L,
-  control = list())
+  control = list(), diagnostic_control = list())
+
+\method{print}{marbounds_l2_grid}(x, ...)
 
 l2_tipping_frontier(x, threshold = 0, endpoint = c("lower", "upper"), plot = FALSE)
 
 \method{plot}{marbounds_l2_frontier}(x, ...)
 }
 \arguments{
-  \item{data, Y, A, C, X, delta, model, method, folds, nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, basis, seed, control}{As in \code{l2_bounds()}.}
+  \item{data, Y, A, C, X, delta, model, method, folds, nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, basis, seed, control, diagnostic_control}{As in \code{l2_bounds()}.}
   \item{grid}{Data frame containing delta_M and delta_K for the primary net model, or delta_R and delta_K for the separated model. Legacy delta_A is accepted. Arm-specific columns may use suffixes _0 and _1.}
   \item{x}{A grid object or its results data frame.}
   \item{threshold}{Null threshold defining the tipping frontier.}
@@ -24,10 +27,15 @@ l2_tipping_frontier(x, threshold = 0, endpoint = c("lower", "upper"), plot = FAL
   \item{plot}{Draw the frontier before returning it.}
   \item{...}{Additional base-graphics arguments.}
 }
-\value{\code{l2_sensitivity_grid()} returns a grid object; \code{l2_tipping_frontier()} returns a plot-ready frontier data frame.}
+\value{\code{l2_sensitivity_grid()} returns a grid object with results,
+endpoint diagnostics for every sharp fit, one diagnostic summary row per grid
+pair, and the raw nested diagnostics. \code{l2_tipping_frontier()} returns a
+plot-ready frontier data frame.}
 \description{Evaluates arm and ATE bounds over a two-dimensional sensitivity
 grid and extracts the first threshold crossing, using linear interpolation
-between adjacent grid points. Groups that do not cross are explicitly marked.}
+between adjacent grid points. Sharp-solver diagnostics are retained separately
+for every radius pair; if anything is flagged, one consolidated warning lists
+the affected grid IDs. Groups that do not cross are explicitly marked.}
 \examples{
 d <- simulate_l2_data(300, seed = 2)
 g <- expand.grid(delta_R = c(0, .2), delta_A = c(0, .1))

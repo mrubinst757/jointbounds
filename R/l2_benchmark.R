@@ -1,3 +1,9 @@
+utils::globalVariables(c(".radius_x", "estimate", "simultaneous_low",
+  "simultaneous_high", "pointwise_low", "pointwise_high",
+  "equal_radius", ".n_omitted_plot", "overall_radius_low",
+  "overall_radius_high", "overall_equal_radius", "benchmark_radius_low",
+  "benchmark_radius_high", ".radius_R", ".radius_A", "label", "method"))
+
 #' Estimate many leave-covariate-out calibration benchmarks
 #'
 #' Constructs retained covariate sets Z, capped within each requested size,
@@ -63,7 +69,7 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
   full <- l2_benchmark_ate_fit(data, Y, A, C, X, folds, nuisance_method,
     sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed)
   methods <- if (estimator == "both") c("plugin", "aipw") else estimator
-  rows <- list(); scores <- list(); h <- 0L
+  rows <- list(); scores <- list(); target_scores <- list(); h <- 0L
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   for (j in seq_along(subsets)) {
     red <- l2_benchmark_ate_fit(data, Y, A, C, subsets[[j]], folds,
@@ -87,11 +93,18 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
         se_type = if (meth == "aipw") "paired EIF" else
           "conditional plug-in spread; nuisance uncertainty omitted",
         stringsAsFactors = FALSE)
-      if (variance) scores[[paste(j, meth, sep = "_")]] <- sc - est
+      if (variance) {
+        key <- paste(j, meth, sep = "_")
+        scores[[key]] <- sc - est
+        target_scores[[key]] <- red$scores[[meth]] - mean(red$scores[[meth]])
+      }
     }
   }
   out <- list(results = do.call(rbind, rows), subsets = subsets,
-    scores = scores, full = full$estimates,
+    scores = scores, target_scores = target_scores,
+    full_scores = if (variance) lapply(full$scores,
+      function(z) z - mean(z)) else list(),
+    full = full$estimates,
     metadata = list(X = X, max_per_pz = max_per_pz,
       subset_selection = subset_selection, variance = variance), call = match.call())
   class(out) <- "marbounds_l2_benchmarks"
@@ -178,6 +191,226 @@ l2_benchmark_band <- function(benchmarks, estimator = "aipw", B = 1000L,
     multiplier = multiplier, B = B, call = match.call())
   class(out) <- "marbounds_l2_benchmark_band"
   out
+}
+
+#' Simultaneous confidence bands for calibration frontiers
+#'
+#' Combines each sensitivity-endpoint influence score with the paired
+#' reduced-adjustment ATE influence score, constructs pointwise and joint
+#' multiplier bands for their difference, and inverts those bands over the
+#' evaluated sensitivity grid.  This implements the calibration-frontier
+#' inference construction in the companion paper while retaining the
+#' covariance between the endpoint and benchmark estimators.
+#'
+#' @param surface Output from `l2_sensitivity_band(..., keep_fits = TRUE)`.
+#' @param benchmarks Output from `l2_aipw_benchmarks(..., variance = TRUE)`.
+#' @param benchmark_estimator Benchmark estimator. Influence-function
+#'   inference currently requires `"aipw"`.
+#' @param endpoint_estimator Endpoint estimator stored in `surface`; defaults
+#'   to `"eif"` for CS bounds and `"dr"` for sharp bounds.
+#' @param active_endpoint Use `"auto"` to select the lower or upper endpoint
+#'   from the sign of the paired reduced-minus-full benchmark. A fixed
+#'   `"lower"`, `"upper"`, or `"both"` may be supplied for a prespecified
+#'   direction.
+#' @param B Number of multiplier draws.
+#' @param conf_level Confidence level for pointwise and simultaneous bands.
+#' @param multiplier Rademacher or standard-normal multipliers.
+#' @param seed Random seed.
+#' @param radius_x,radius_y Sensitivity-radius columns. They default to
+#'   `delta_M` and `delta_K` when available.
+#' @return A list containing the estimated frontiers, the grid-level gap
+#'   estimates and bands, the paired influence-score matrix, and the joint
+#'   multiplier critical value.
+#' @export
+l2_calibration_band <- function(surface, benchmarks,
+                                benchmark_estimator = "aipw",
+                                endpoint_estimator = NULL,
+                                active_endpoint = c("auto", "lower", "upper",
+                                                    "both"),
+                                B = 1000L, conf_level = .95,
+                                multiplier = c("rademacher", "normal"),
+                                seed = 1L, radius_x = NULL,
+                                radius_y = NULL) {
+  if (!inherits(surface, "marbounds_l2_sensitivity_band") ||
+      is.null(surface$fits) || !length(surface$fits))
+    stop("surface must come from l2_sensitivity_band(..., keep_fits = TRUE)")
+  if (!inherits(benchmarks, "marbounds_l2_benchmarks"))
+    stop("benchmarks must come from l2_aipw_benchmarks()")
+  if (!identical(benchmark_estimator, "aipw"))
+    stop("Combined influence-function inference requires benchmark_estimator = 'aipw'")
+  active_endpoint <- match.arg(active_endpoint)
+  multiplier <- match.arg(multiplier)
+  B <- as.integer(B)
+  if (length(B) != 1L || !is.finite(B) || B < 2L)
+    stop("B must be an integer of at least two")
+  if (length(conf_level) != 1L || !is.finite(conf_level) ||
+      conf_level <= 0 || conf_level >= 1)
+    stop("conf_level must lie strictly between zero and one")
+  grid <- surface$grid
+  if (!is.data.frame(grid) || nrow(grid) != length(surface$fits))
+    stop("surface does not retain a valid sensitivity grid and fit list")
+  if (is.null(radius_x)) radius_x <- if ("delta_M" %in% names(grid))
+    "delta_M" else "delta_R"
+  if (is.null(radius_y)) radius_y <- if ("delta_K" %in% names(grid))
+    "delta_K" else "delta_A"
+  if (!all(c(radius_x, radius_y) %in% names(grid)))
+    stop("The sensitivity grid must contain radius_x and radius_y")
+  if (is.null(endpoint_estimator)) endpoint_estimator <-
+    if (identical(surface$bound_method, "sharp")) "dr" else "eif"
+
+  bd <- benchmarks$results[
+    benchmarks$results$estimator == benchmark_estimator, , drop = FALSE]
+  keys <- paste(bd$benchmark_id, benchmark_estimator, sep = "_")
+  target_scores <- benchmarks$target_scores[keys]
+  if (!nrow(bd) || any(vapply(target_scores, is.null, logical(1))))
+    stop("Re-estimate benchmarks with estimator including 'aipw' and variance = TRUE")
+  n <- unique(vapply(target_scores, length, integer(1)))
+  if (length(n) != 1L) stop("Benchmark influence scores have unequal lengths")
+
+  gap_rows <- list(); gap_scores <- list(); h <- 0L
+  for (j in seq_len(nrow(bd))) {
+    target <- bd$reduced_estimate[j]
+    reference <- bd$full_estimate[j]
+    if (!is.finite(target) || !is.finite(reference))
+      stop("Benchmark target and full-X reference estimates must be finite")
+    direction <- if (active_endpoint != "auto") active_endpoint else
+      if (target < reference) "lower" else if (target > reference)
+        "upper" else "both"
+    if (direction == "both") {
+      warning("Benchmark ", bd$label[j],
+        " equals its full-X estimate; its calibration frontier begins at the origin")
+    }
+    target_score <- target_scores[[j]] - mean(target_scores[[j]])
+    for (i in seq_len(nrow(grid))) {
+      fit <- surface$fits[[i]]
+      endpoints <- if (direction == "both") c("lower", "upper") else direction
+      for (endpoint in endpoints) {
+        rr <- fit$ate[fit$ate$estimator == endpoint_estimator &
+                        fit$ate$endpoint == endpoint, , drop = FALSE]
+        score <- fit$scores[[paste(endpoint_estimator, endpoint, sep = "_")]]
+        if (nrow(rr) != 1L || is.null(score) || length(score) != n)
+          stop("Surface fits and benchmark scores must use the same ordered observations")
+        if (endpoint == "lower") {
+          gap <- rr$estimate - target
+          score <- score - target_score
+        } else {
+          gap <- target - rr$estimate
+          score <- target_score - score
+        }
+        h <- h + 1L
+        score <- score - mean(score)
+        gap_scores[[h]] <- score
+        gap_rows[[h]] <- data.frame(benchmark_id = bd$benchmark_id[j],
+          label = bd$label[j], grid_id = i, endpoint = endpoint,
+          direction = direction, target = target, reference = reference,
+          gap = gap, se = stats::sd(score) / sqrt(n),
+          stringsAsFactors = FALSE)
+      }
+    }
+  }
+  gaps <- do.call(rbind, gap_rows)
+  gaps <- cbind(gaps, grid[gaps$grid_id, , drop = FALSE])
+  score_matrix <- do.call(cbind, gap_scores)
+  sigma <- apply(score_matrix, 2L, stats::sd)
+  regular <- is.finite(sigma) & sigma > 0
+  if (!any(regular)) stop("All combined calibration-gap scores have zero variance")
+  set.seed(seed)
+  suprema <- numeric(B)
+  for (b in seq_len(B)) {
+    xi <- if (multiplier == "rademacher")
+      sample(c(-1, 1), n, replace = TRUE) else stats::rnorm(n)
+    process <- colSums(score_matrix[, regular, drop = FALSE] * xi) /
+      (sqrt(n) * sigma[regular])
+    suprema[b] <- max(abs(process))
+  }
+  critical <- unname(stats::quantile(suprema, conf_level, type = 8))
+  zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
+  gaps$pointwise_low <- gaps$gap - zcrit * gaps$se
+  gaps$pointwise_high <- gaps$gap + zcrit * gaps$se
+  gaps$simultaneous_low <- gaps$gap - critical * gaps$se
+  gaps$simultaneous_high <- gaps$gap + critical * gaps$se
+
+  crossing <- function(z, value) {
+    z <- z[order(z[[radius_y]]), , drop = FALSE]
+    yy <- z[[value]]; xx <- z[[radius_y]]
+    ok <- is.finite(yy) & is.finite(xx)
+    yy <- yy[ok]; xx <- xx[ok]
+    if (!length(yy) || !any(yy <= 0)) return(NA_real_)
+    k <- which(yy <= 0)[1L]
+    if (k == 1L || !is.finite(yy[k - 1L]) || yy[k] == yy[k - 1L])
+      return(xx[k])
+    frac <- -yy[k - 1L] / (yy[k] - yy[k - 1L])
+    if (!is.finite(frac) || frac < 0 || frac > 1) return(xx[k])
+    xx[k - 1L] + frac * (xx[k] - xx[k - 1L])
+  }
+  group_key <- interaction(gaps$benchmark_id, gaps$endpoint,
+                           gaps[[radius_x]], drop = TRUE)
+  frontier <- do.call(rbind, lapply(split(gaps, group_key), function(z) {
+    vals <- vapply(c("gap", "pointwise_low", "pointwise_high",
+      "simultaneous_low", "simultaneous_high"),
+      function(nm) crossing(z, nm), numeric(1))
+    data.frame(benchmark_id = z$benchmark_id[1L], label = z$label[1L],
+      endpoint = z$endpoint[1L], direction = z$direction[1L],
+      radius_x_value = z[[radius_x]][1L], estimate = vals[["gap"]],
+      pointwise_low = vals[["pointwise_low"]],
+      pointwise_high = vals[["pointwise_high"]],
+      simultaneous_low = vals[["simultaneous_low"]],
+      simultaneous_high = vals[["simultaneous_high"]],
+      stringsAsFactors = FALSE)
+  }))
+  names(frontier)[names(frontier) == "radius_x_value"] <- radius_x
+  for (pair in list(c("pointwise_low", "pointwise_high"),
+                    c("simultaneous_low", "simultaneous_high"))) {
+    lo <- pmin(frontier[[pair[1L]]], frontier[[pair[2L]]], na.rm = TRUE)
+    hi <- pmax(frontier[[pair[1L]]], frontier[[pair[2L]]], na.rm = TRUE)
+    neither <- !is.finite(frontier[[pair[1L]]]) &
+      !is.finite(frontier[[pair[2L]]])
+    lo[neither] <- hi[neither] <- NA_real_
+    frontier[[pair[1L]]] <- lo; frontier[[pair[2L]]] <- hi
+  }
+  frontier <- frontier[order(frontier$benchmark_id, frontier$endpoint,
+                             frontier[[radius_x]]), , drop = FALSE]
+  rownames(frontier) <- NULL
+  out <- list(frontier = frontier, gaps = gaps, scores = score_matrix,
+    critical_value = critical, suprema = suprema, conf_level = conf_level,
+    multiplier = multiplier, endpoint_estimator = endpoint_estimator,
+    benchmark_estimator = benchmark_estimator, radius_x = radius_x,
+    radius_y = radius_y, B = B, call = match.call())
+  class(out) <- "marbounds_l2_calibration_band"
+  out
+}
+
+#' Plot calibration-frontier confidence bands
+#' @param x Output from `l2_calibration_band()`.
+#' @param ... Additional arguments currently ignored.
+#' @return A `ggplot2` object.
+#' @export
+plot.marbounds_l2_calibration_band <- function(x, ...) {
+  if (!requireNamespace("ggplot2", quietly = TRUE))
+    stop("Plotting calibration bands requires the suggested package ggplot2")
+  d <- x$frontier
+  if (!nrow(d) || !any(is.finite(d$estimate)))
+    stop("No finite calibration-frontier crossings are available to plot")
+  rx <- x$radius_x; ry <- x$radius_y
+  d$.radius_x <- d[[rx]]
+  ggplot2::ggplot(d, ggplot2::aes(x = .radius_x, y = estimate)) +
+    ggplot2::geom_ribbon(ggplot2::aes(
+      ymin = simultaneous_low, ymax = simultaneous_high),
+      fill = "#4C78A8", alpha = .16, na.rm = TRUE) +
+    ggplot2::geom_ribbon(ggplot2::aes(
+      ymin = pointwise_low, ymax = pointwise_high),
+      fill = "#4C78A8", alpha = .28, na.rm = TRUE) +
+    ggplot2::geom_line(linewidth = .9, colour = "#173F5F", na.rm = TRUE) +
+    ggplot2::facet_wrap(stats::as.formula("~ label")) +
+    ggplot2::labs(x = rx, y = paste0("Frontier value of ", ry),
+      title = "Estimated calibration frontiers",
+      subtitle = paste0(format(100 * x$conf_level, trim = TRUE),
+        "% pointwise and simultaneous influence-function bands")) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(face = "bold"),
+      strip.text = ggplot2::element_text(face = "bold"),
+      axis.title = ggplot2::element_text(face = "bold"))
 }
 
 #' Invert a sensitivity surface for many calibration benchmarks
@@ -424,19 +657,19 @@ plot.marbounds_l2_equal_radius_comparison <- function(x, ...) {
   reached <- nrow(refs) > 0L
   show_uncertainty <- isTRUE(attr(x, "uncertainty"))
   pos <- ggplot2::position_jitter(width = 0, height = .09, seed = 1)
-  p <- ggplot2::ggplot(d, ggplot2::aes_string(
-      x = "equal_radius", y = ".n_omitted_plot")) +
+  p <- ggplot2::ggplot(d, ggplot2::aes(
+      x = equal_radius, y = .n_omitted_plot)) +
     ggplot2::geom_rect(data = refs,
-      ggplot2::aes_string(xmin = "overall_radius_low",
-        xmax = "overall_radius_high", ymin = "-Inf", ymax = "Inf"),
+      ggplot2::aes(xmin = overall_radius_low,
+        xmax = overall_radius_high, ymin = -Inf, ymax = Inf),
       inherit.aes = FALSE, fill = "#D95F5F", alpha = if (show_uncertainty) .16 else 0) +
     ggplot2::geom_vline(data = refs,
-      ggplot2::aes_string(xintercept = "overall_equal_radius"),
+      ggplot2::aes(xintercept = overall_equal_radius),
       inherit.aes = FALSE, linewidth = .85, linetype = "dashed",
       colour = "#B33A3A") +
-    ggplot2::geom_errorbarh(ggplot2::aes_string(
-      xmin = "benchmark_radius_low", xmax = "benchmark_radius_high"),
-      position = pos, height = .08, linewidth = .65,
+    ggplot2::geom_errorbar(ggplot2::aes(
+      xmin = benchmark_radius_low, xmax = benchmark_radius_high),
+      orientation = "y", position = pos, width = .08, linewidth = .65,
       alpha = if (show_uncertainty) .8 else 0, colour = "#176B87") +
     ggplot2::geom_point(position = pos, size = 3.4, alpha = .78,
       colour = "#176B87") +
@@ -475,14 +708,14 @@ plot.marbounds_l2_benchmark_frontiers <- function(x, facet_pz = TRUE, ...) {
   if (is.null(eq)) eq <- l2_equal_radius(x)
   eq <- eq[is.finite(eq$equal_radius), , drop = FALSE]
   eq$.radius_R <- eq$equal_radius; eq$.radius_A <- eq$equal_radius
-  p <- ggplot2::ggplot(d, ggplot2::aes_string(
-      x = ".radius_R", y = ".radius_A", colour = "label",
-      linetype = "method", group = "interaction(label, method)")) +
+  p <- ggplot2::ggplot(d, ggplot2::aes(
+      x = .radius_R, y = .radius_A, colour = label,
+      linetype = method, group = interaction(label, method))) +
     ggplot2::geom_abline(slope = 1, intercept = 0, colour = "grey55",
       linewidth = .6, linetype = "dashed") +
     ggplot2::geom_line(linewidth = 1.05, lineend = "round") +
-    ggplot2::geom_point(data = eq, ggplot2::aes_string(
-      x = ".radius_R", y = ".radius_A", colour = "label"),
+    ggplot2::geom_point(data = eq, ggplot2::aes(
+      x = .radius_R, y = .radius_A, colour = label),
       inherit.aes = FALSE, shape = 21, fill = "white", stroke = 1.1,
       size = 3.1) +
     ggplot2::scale_colour_viridis_d(option = "D", end = .85) +

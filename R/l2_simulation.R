@@ -1,3 +1,6 @@
+utils::globalVariables(c("scenario", "coverage", "estimator", "bound_method",
+                         "bias", "width", "model"))
+
 #' Reproducible designs for the continuous-outcome simulation study
 #'
 #' @param profile `"main"` returns the prespecified paper design and `"fast"`
@@ -171,7 +174,8 @@ l2_basis_approximation <- function(data, parameters = NULL,
 #' @param l2_method Passed to `l2_compare_dr_plugin()`.
 #' @param linf_method Passed to `l2_compare_dr_plugin()`. The main finite-sample
 #'   study defaults to the inexpensive outer comparison.
-#' @param folds Number of cross-fitting folds.
+#' @param folds Number of cross-fitting folds. At least three are required when
+#'   the sharp one-step estimator is included.
 #' @param progress Print scenario progress.
 #' @param continue_on_error If true, record a failed scenario and continue.
 #' @param checkpoint_file Optional RDS path updated after every scenario.
@@ -184,14 +188,18 @@ l2_simulation_study <- function(design = l2_simulation_design("main"),
                                 conf_level = .95,
                                 l2_method = c("both", "sharp", "cs"),
                                 linf_method = c("outer", "both", "sharp"),
-                                folds = 2L, progress = interactive(),
+                                folds = 3L, progress = interactive(),
                                 continue_on_error = TRUE,
                                 checkpoint_file = NULL, ...) {
   design <- l2_simulation_validate_design(as.data.frame(design))
   l2_method <- match.arg(l2_method); linf_method <- match.arg(linf_method)
   B <- as.integer(B); truth_n <- as.integer(truth_n); folds <- as.integer(folds)
-  if (B < 2L || truth_n < 1000L || folds < 2L)
-    stop("B must be at least 2, truth_n at least 1000, and folds at least 2")
+  needs_crossfit <- l2_method %in% c("sharp", "both") &&
+    any(design$nuisance_simulation == "estimated")
+  minimum_folds <- if (needs_crossfit) 3L else 2L
+  if (B < 2L || truth_n < 1000L || folds < minimum_folds)
+    stop("B must be at least 2, truth_n at least 1000, and folds at least ",
+         minimum_folds, " for l2_method = '", l2_method, "'")
   extra <- list(...)
   if (length(extra) && (is.null(names(extra)) || any(!nzchar(names(extra)))))
     stop("All arguments supplied through ... must be named")

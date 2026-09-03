@@ -1,11 +1,16 @@
-# marbounds
+# jointbounds
 
-R package implementing bounds on causal effects when outcomes are missing under a mixture of informative and non-informative missingness (see paper: *Bounding causal effects with an unknown mixture of informative and non-informative missingness* https://arxiv.org/pdf/2411.16902).
+`jointbounds` is the development repository for the `marbounds` R package. It
+implements bounds on causal effects under joint sensitivity to informative
+missingness and unmeasured confounding, while retaining the original
+mixed-missingness methods (see *Bounding causal effects with an unknown mixture
+of informative and non-informative missingness*, https://arxiv.org/pdf/2411.16902).
 
 ## Key features
 
 - **Generic data interface**: Provide a `data.frame` with columns for outcome `Y`, treatment `A`, missingness indicator `C`, and covariates `X`.
 - **Nuisance estimation**: SuperLearner with user-specified libraries and V-fold cross-fitting for propensity score, missingness probabilities, and outcome regressions.
+- **Point-identified ATE**: Cross-fitted AIPW estimation and Wald inference under MAR and no unmeasured confounding via `generate_ate()`.
 - **User-specified estimand**: Average treatment effect (ATE), composite ATE (Ψ₁), or separable direct effect (Ψ₂).
 - **User-specified assumptions**: General bounds, bounded proportion of informative missingness (δ), monotonicity (positive/negative), bounded outcome risk (τ), or point identification under known sensitivity parameters.
 - **Multiplier bootstrap**: Simultaneous inference over a grid of sensitivity parameters via multiplier bootstrap.
@@ -22,7 +27,13 @@ theoretical-only cases.
 
 ## Installation
 
-From source (in R):
+Install the current development version from GitHub:
+
+```r
+remotes::install_github("mdrubinstein/jointbounds")
+```
+
+The earlier release remains available from R-universe:
 
 ```r
 # Install from r-universe
@@ -67,6 +78,18 @@ fit2 <- mar_bounds(dat, Y = "Y", A = "A", C = "C", X = "X",
 fit2$result
 ```
 
+When MAR and no unmeasured confounding are maintained, obtain the
+point-identified ATE with a cross-fitted doubly robust estimator:
+
+```r
+ate_fit <- generate_ate(
+  dat, Y = "Y", A = "A", C = "C", X = "X",
+  folds = 5, nuisance_method = "SuperLearner"
+)
+ate_fit$ate
+ate_fit$diagnostic_summary
+```
+
 ## Continuous-outcome L2 example
 
 `simulate_l2_data()` uses Gaussian potential-outcome errors by default, with
@@ -100,8 +123,9 @@ fit_l2$diagnostics
 fit_l2$true_bounds$cs$ate    # simulation-only oracle CS comparison
 fit_l2$true_bounds$sharp$ate # simulation-only oracle sharp-sieve comparison
 
-# Cross-fitted sharp-bound inference. The same fold-specific dual solution is
-# evaluated by an inverse-weighted plug-in estimator and its DR augmentation.
+# Cross-fitted sharp-bound inference. Cyclic three-stage splitting keeps
+# structural nuisance/dual fitting, pseudo-outcome regression, and final
+# influence-score evaluation on disjoint observations.
 fit_cf <- l2_sharp_crossfit(
   dat_cont, "Y", "A", "C", c("X1", "X2"),
   delta_M = 0.20, delta_K = 0.15,
@@ -109,16 +133,26 @@ fit_cf <- l2_sharp_crossfit(
 )
 fit_cf$ate
 
+# The joint framework nests both single-mechanism analyses.
+fit_nuc_only <- l2_bounds(
+  dat_cont, "Y", "A", "C", c("X1", "X2"),
+  delta_M = 0, delta_K = .15, method = "both"
+)
+fit_mar_only <- l2_bounds(
+  dat_cont, "Y", "A", "C", c("X1", "X2"),
+  delta_M = .20, delta_K = 0, method = "both"
+)
+
 # Monte Carlo comparison of endpoint bias, RMSE, SE calibration, and coverage.
 # Supply truth = c(lower = ..., upper = ...) when analytic/reference endpoints
 # are available; otherwise a large simulated empirical-sieve reference is used.
 sim_cf <- l2_compare_dr_plugin(
   B = 200, n = 1000, truth_n = 30000,
   delta_M = 0.20, delta_K = 0.15,
-  folds = 5, nuisance_simulation = "oracle_error",
+  nuisance_simulation = "oracle_error",
   nuisance_error_rate = 0.25,
-  nuisance_error_scale = c(e = 1, rho = 1, regression = 1),
-  nuisance_error_sign = c(e = 1, rho = -1, regression = 1)
+  nuisance_error_scale = c(e = 1, rho = 1, mu = 1, regression = 1),
+  nuisance_error_sign = c(e = 1, rho = -1, mu = 1, regression = -1)
 )
 sim_cf$summary
 sim_cf$bound_coverage
@@ -130,7 +164,7 @@ sim_cf$bound_comparison
 
 # Prespecified paper study (use profile = "fast" before a full run).
 design <- l2_simulation_design("fast")
-# study <- l2_simulation_study(design, B = 10, truth_n = 2000, folds = 2)
+# study <- l2_simulation_study(design, B = 10, truth_n = 2000, folds = 3)
 # plot(study, "coverage")
 
 # Separate Monte Carlo assessment of leave-covariate-out AIPW calibration.
@@ -140,7 +174,9 @@ design <- l2_simulation_design("fast")
 # estimators and are identified by bound_method = "cs".
 # sim_cf <- l2_compare_dr_plugin(..., l2_method = "both")
 
-# The summary contains plugin, dr (error-added EIF), and true_eif.
+# The summary contains plugin, dr (error-added EIF), and true_eif. In the
+# controlled-error mode no regressions are fitted and cross-fitting is not
+# used: e, rho, mu, and the second-stage regressions are directly perturbed.
 
 # Set nuisance_error_rate = 0 for fixed misspecification, or use
 # nuisance_simulation = "estimated" to refit the requested learners.
@@ -171,7 +207,8 @@ if (any(frontier$tipped_on_grid)) plot(frontier)
 # Use keep_fits = TRUE only if the individual pointwise fits are also needed.
 surface_band <- l2_sensitivity_band(
   dat_cont, "Y", "A", "C", c("X1", "X2"), grid,
-  model = "net", bound_method = "cs", estimator = "eif", B = 1000
+  model = "net", bound_method = "cs", estimator = "eif", B = 1000,
+  keep_fits = TRUE
 )
 surface_band$outward
 
@@ -195,6 +232,10 @@ bench <- l2_aipw_benchmarks(
   estimator = "both", variance = TRUE
 )
 benchmark_band <- l2_benchmark_band(bench, B = 1000)
+calibration_band <- l2_calibration_band(
+  surface_band, bench, B = 1000
+)
+plot(calibration_band)
 frontiers <- l2_benchmark_frontiers(
   surface, bench, estimator = "aipw", plot = TRUE
 )

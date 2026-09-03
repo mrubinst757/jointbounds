@@ -48,9 +48,9 @@ compute_bounds(
 
 \item{pi0, pi1}{Missingness probability nuisance functions (n-vectors).}
 
-\item{smooth_approximation}{Logical; for psi2 bounded_delta, use smooth approximation (TRUE) or indicator method (FALSE).}
+\item{smooth_approximation}{Logical; for psi2 bounded_delta and bounded_risk, use smooth approximation (TRUE) or indicator method (FALSE).}
 
-\item{epsilon}{Smoothing parameter for psi2 smooth approximation.}
+\item{epsilon}{Smoothing parameter for smooth approximation (default 0.001).}
 }
 \value{
 List with elements estimate, lower, upper (as appropriate), and optional se_* for asymptotic SEs.

@@ -9,8 +9,8 @@ l2_bounds(data, Y, A, C, X, delta = c(1, 1),
   folds = 5L, nuisance_method = c("SuperLearner", "glm"),
   sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
   sl_lib_outcome = "SL.glm", basis = NULL, seed = 1L,
-  control = list(), keep_nuisance = FALSE, return_true_bounds = FALSE,
-  delta_K = NULL)
+  control = list(), diagnostic_control = list(), keep_nuisance = FALSE,
+  return_true_bounds = FALSE, delta_K = NULL)
 
 \method{print}{marbounds_l2}(x, ...)
 }
@@ -30,6 +30,12 @@ l2_bounds(data, Y, A, C, X, delta = c(1, 1),
   \item{basis}{Optional formula for the conditional-normalization sieve.}
   \item{seed}{Random seed for fold construction.}
   \item{control}{Control list passed to \code{optim()} for sharp bounds.}
+  \item{diagnostic_control}{Optional list controlling sharp-solver
+  diagnostics. Set \code{warn = FALSE} to suppress the consolidated warning
+  or \code{compute_hessian = FALSE} to skip local-curvature diagnostics.
+  Numerical tolerances for normalization, budgets, the primal--dual gap,
+  multipliers, curvature, conditioning, and boundary saturation may also be
+  changed.}
   \item{keep_nuisance}{Whether row-level nuisance estimates are returned.}
   \item{return_true_bounds}{Return the requested oracle Monte Carlo CS and/or
   sharp-sieve bounds; requires known-DGP columns from
@@ -37,7 +43,10 @@ l2_bounds(data, Y, A, C, X, delta = c(1, 1),
   \item{x}{An object returned by \code{l2_bounds()}.}
   \item{...}{Unused.}
 }
-\value{An object containing arm-specific bounds, ATE bounds, diagnostics, sensitivity parameters, and an empirical fourth-moment check.}
+\value{An object containing arm-specific bounds, ATE bounds, raw diagnostics,
+an endpoint-level \code{diagnostic_table}, a one-row
+\code{diagnostic_summary}, sensitivity parameters, and an empirical
+fourth-moment check.}
 \description{
 Computes continuous-outcome sensitivity bounds under global L2 restrictions.
 Nuisance probabilities and outcome regressions are estimated as functions of X
@@ -45,7 +54,9 @@ using cross-fitting. The reference mean is augmented inverse-probability
 weighted; nonlinear CS moments are cross-fitted plug-in inverse-weighted moments.
 The CS method returns the paper's closed-form outer radius. The sharp method
 solves the empirical sieve-dual problem and reports optimization, divergence,
-and conditional-normalization diagnostics.
+conditional-normalization, budget-activity, multiplier, boundary, and local-
+curvature diagnostics. A single warning is printed when any diagnostic is
+flagged; the detailed reason remains available in the returned tables.
 }
 \details{
 The sharp result is exact for the empirical conditional-normalization sieve

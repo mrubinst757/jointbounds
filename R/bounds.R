@@ -278,35 +278,32 @@ compute_bounds <- function(phi,
       }
 
       if (smooth_approximation) {
-        # Smooth approximation method using Phi_epsilon (corrected formulas v2)
-        phi_cdf_lower <- stats::pnorm((mu1 - mu0) / epsilon)  # Φ_ε(μ_1 - μ_0) for lower
-        phi_cdf_upper <- stats::pnorm((mu0 - mu1) / epsilon)  # Φ_ε(μ_0 - μ_1) for upper
-
-        # Components for smooth approximation
-        # phi columns: phi_1_0, phi_1_1, phi_2_0, phi_2_1, phi_3_0, phi_3_1
+        # Smooth x_+ by q_epsilon(x) = {x + sqrt(x^2 + epsilon^2)}/2.
+        # Unlike x Phi(x/epsilon), this approximation remains nonnegative.
         phi1_0 <- phi[, 1]
         phi1_1 <- phi[, 2]
         phi2_0 <- phi[, 3]
+        contrast <- mu1 - mu0
+        reference_score <- phi1_1 - phi1_0
+        contrast_score <- reference_score - contrast
+        pi_score <- phi2_0 - pi0
 
-        # Need Y, A, C, e1, pi1 for doubly-robust term
-        # Extract from influence matrix components
-        # DR term = I{C=0,A=1}/((1-π_1)e_1)(Y-μ_1) - I{C=0,A=0}/((1-π_0)e_0)(Y-μ_0)
-        # Note: phi1_1 - phi1_0 = DR_term + (mu1 - mu0), so DR_term = phi1_1 - phi1_0 - (mu1 - mu0)
-        dr_term <- phi1_1 - phi1_0 - (mu1 - mu0)
-
-        # Lower bound smooth: uses Φ_ε(μ_1 - μ_0)
-        lb_vec <- phi1_1 - phi1_0 -
-                  dr_term * pi0 * phi_cdf_lower -
-                  (phi2_0 - pi0) * (mu1 - mu0) * phi_cdf_lower -
-                  (mu1 - mu0) * pi0 * phi_cdf_lower * (phi1_1 - phi1_0 - mu1 + mu0) -
-                  (mu1 - mu0) * pi0 * phi_cdf_lower
-
-        # Upper bound smooth: uses Φ_ε(μ_0 - μ_1)
-        ub_vec <- phi1_1 - phi1_0 -
-                  dr_term * pi0 * phi_cdf_upper -
-                  (phi2_0 - pi0) * (mu1 - mu0) * phi_cdf_upper -
-                  (mu1 - mu0) * pi0 * phi_cdf_upper * (phi1_0 - phi1_1 - mu0 + mu1) -
-                  (mu1 - mu0) * pi0 * phi_cdf_upper
+        smooth_support_score <- function(x, x_score) {
+          root <- sqrt(x^2 + epsilon^2)
+          q <- (x + root) / 2
+          q_prime <- (1 + x / root) / 2
+          pi0 * q + pi0 * q_prime * x_score + q * pi_score
+        }
+        support_pos <- smooth_support_score(contrast, contrast_score)
+        support_neg <- smooth_support_score(-contrast, -contrast_score)
+        # A one-step estimate of a nonnegative support functional can be
+        # negative in a small sample.  Projecting it to zero preserves the
+        # defining order of the endpoints and is asymptotically inactive away
+        # from the zero-support boundary.
+        support_pos <- if (mean(support_pos) > 0) support_pos else rep(0, n)
+        support_neg <- if (mean(support_neg) > 0) support_neg else rep(0, n)
+        lb_vec <- reference_score - delta_0u * support_pos
+        ub_vec <- reference_score + delta_0u * support_neg
 
         lower <- mean(lb_vec)
         upper <- mean(ub_vec)
@@ -315,32 +312,27 @@ compute_bounds <- function(phi,
 
         return(list(naive = th[2] - th[1], lower = lower, upper = upper, se_lower = se_lower, se_upper = se_upper))
       } else {
-        # Indicator function method (default) - corrected formulas v2
-        # ℓ_2: uses I(μ_1 > μ_0)
-        # u_2: uses I(μ_1 ≤ μ_0)
-
-        ind_mu1_le_mu0 <- (mu1 <= mu0)
-        ind_mu1_gt_mu0 <- (mu1 > mu0)
-
-        # φ columns: phi_1_0, phi_1_1, phi_2_0, phi_2_1, phi_3_0, phi_3_1
+        # Exact positive-part support functions.  The lower endpoint subtracts
+        # delta_0u E[pi0 (mu1-mu0)_+]; the upper endpoint adds
+        # delta_0u E[pi0 (mu0-mu1)_+].
         phi1_0 <- phi[, 1]
         phi1_1 <- phi[, 2]
         phi2_0 <- phi[, 3]
+        contrast <- mu1 - mu0
+        reference_score <- phi1_1 - phi1_0
+        contrast_score <- reference_score - contrast
+        pi_score <- phi2_0 - pi0
 
-        # Doubly-robust term: phi1_1 - phi1_0 - (mu1 - mu0)
-        dr_term <- phi1_1 - phi1_0 - (mu1 - mu0)
-
-        # Lower bound: I(μ_1 > μ_0)
-        lb_vec <- phi1_1 - phi1_0 -
-                  dr_term * pi0 * ind_mu1_gt_mu0 -
-                  (phi2_0 - pi0) * (mu1 - mu0) * ind_mu1_gt_mu0 -
-                  (mu1 - mu0) * pi0 * ind_mu1_gt_mu0
-
-        # Upper bound: I(μ_1 ≤ μ_0)
-        ub_vec <- phi1_1 - phi1_0 -
-                  dr_term * pi0 * ind_mu1_le_mu0 -
-                  (phi2_0 - pi0) * (mu1 - mu0) * ind_mu1_le_mu0 -
-                  (mu1 - mu0) * pi0 * ind_mu1_le_mu0
+        support_pos <- pi0 * pmax(contrast, 0) +
+          pi0 * (contrast > 0) * contrast_score +
+          pmax(contrast, 0) * pi_score
+        support_neg <- pi0 * pmax(-contrast, 0) -
+          pi0 * (contrast < 0) * contrast_score +
+          pmax(-contrast, 0) * pi_score
+        support_pos <- if (mean(support_pos) > 0) support_pos else rep(0, n)
+        support_neg <- if (mean(support_neg) > 0) support_neg else rep(0, n)
+        lb_vec <- reference_score - delta_0u * support_pos
+        ub_vec <- reference_score + delta_0u * support_neg
 
         lower <- mean(lb_vec)
         upper <- mean(ub_vec)
