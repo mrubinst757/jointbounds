@@ -25,8 +25,8 @@ Description: Implements influence-function-based estimators for bounds on causal
   missingness prevalence and severity, nuisance complexity, concentration,
   and outcome tails, and separately assess AIPW calibration benchmarks.
 License: MIT + file LICENSE
-URL: https://github.com/mdrubinstein/jointbounds
-BugReports: https://github.com/mdrubinstein/jointbounds/issues
+URL: https://github.com/mrubinst757/jointbounds
+BugReports: https://github.com/mrubinst757/jointbounds/issues
 Encoding: UTF-8
 Imports:
   SuperLearner,

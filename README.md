@@ -30,7 +30,7 @@ theoretical-only cases.
 Install the current development version from GitHub:
 
 ```r
-remotes::install_github("mdrubinstein/jointbounds")
+remotes::install_github("mrubinst757/jointbounds")
 ```
 
 The earlier release remains available from R-universe:
