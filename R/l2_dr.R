@@ -318,7 +318,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                 "the three fitting stages are separated by cyclic rotation;",
                 "plug-in intervals condition on fitted nuisances."),
               call = match.call())
-  class(out) <- "marbounds_l2_sharp_cf"
+  class(out) <- "jointbounds_l2_sharp_cf"
   if (isTRUE(diagnostic_control$warn))
     l2_warn_diagnostics(diagnostic_summary, "Cross-fitted sharp-bound")
   out
@@ -637,11 +637,13 @@ l2_compare_dr_plugin <- function(B = 200L, n = 1000L,
     density_ratio_link = density_ratio_link,
     confounding_strength = confounding_strength), dgp_args))
   oracle_parameters <- l2_oracle_sensitivity_parameters(calibration_data)
+  linf_model <- if (is.null(dots$model)) "net" else
+    match.arg(dots$model, c("net", "separated"))
   linf_bounds <- l2_oracle_linf_outer_bounds(calibration_data,
-    oracle_parameters)
+    oracle_parameters, model = linf_model)
   linf_sharp_bounds <- if (linf_method %in% c("sharp", "both"))
     l2_oracle_linf_sharp_bounds(calibration_data, oracle_parameters,
-      basis = dots$basis, max_n = linf_max_n) else NULL
+      basis = dots$basis, max_n = linf_max_n, model = linf_model) else NULL
   use_oracle <- parameter_evaluation == "oracle" ||
     (parameter_evaluation == "auto" && !sensitivity_given)
   if (use_oracle) {
@@ -840,8 +842,8 @@ l2_oracle_sensitivity_parameters <- function(data, nodes = 200L) {
   ## With informative missingness, the Gaussian tail makes the population
   ## essential supremum one. Under MAR, the informative prevalence is zero.
   delta <- if (has_mar) c(1, 1) else c(0, 0)
-  delta_R <- delta_M <- delta_A <- delta_R_inf <- delta_A_inf <-
-    empirical_delta <- numeric(2L)
+  delta_R <- delta_M <- delta_A <- delta_R_inf <- delta_M_inf <-
+    delta_A_inf <- empirical_delta <- numeric(2L)
   ratios <- vector("list", 2L)
   for (a in 0:1) {
     mu <- data[[paste0("mu_Y", a)]]
@@ -882,11 +884,14 @@ l2_oracle_sensitivity_parameters <- function(data, nodes = 200L) {
         R_ext <- sweep(pui_ext / (1 - pui_ext), 1L,
                        joint_O0 / joint_I, "*")
         delta_R_inf[a + 1L] <- max(abs(R_ext - 1))
-      } else delta_R_inf[a + 1L] <- Inf
+        M_ext <- sweep(1 / (1 - pui_ext), 1L, joint_O0 / eF, "*")
+        delta_M_inf[a + 1L] <- max(abs(M_ext - 1))
+      } else delta_R_inf[a + 1L] <- delta_M_inf[a + 1L] <- Inf
     } else {
       delta_R[a + 1L] <- 0
       delta_M[a + 1L] <- 0
       delta_R_inf[a + 1L] <- 0
+      delta_M_inf[a + 1L] <- 0
     }
     K <- (gC / eC) / (gF / eF)
     chi_A_x <- rowMeans((gF / eF) * (K - 1)^2)
@@ -903,11 +908,12 @@ l2_oracle_sensitivity_parameters <- function(data, nodes = 200L) {
     ratios[[a + 1L]] <- ratio
   }
   names(delta) <- names(delta_R) <- names(delta_M) <- names(delta_A) <-
-    names(delta_R_inf) <- names(delta_A_inf) <-
+    names(delta_R_inf) <- names(delta_M_inf) <- names(delta_A_inf) <-
     names(empirical_delta) <- c("arm0", "arm1")
   list(delta = delta, delta_R = delta_R, delta_M = delta_M,
        delta_A = delta_A, delta_K = delta_A,
-       delta_R_inf = delta_R_inf, delta_A_inf = delta_A_inf,
+       delta_R_inf = delta_R_inf, delta_M_inf = delta_M_inf,
+       delta_A_inf = delta_A_inf, delta_K_inf = delta_A_inf,
        empirical_delta = empirical_delta,
        prevalence_ratio = ratios,
        note = paste(if (has_mar)
@@ -920,9 +926,13 @@ l2_oracle_sensitivity_parameters <- function(data, nodes = 200L) {
          "Set confounding_strength=0 to recover delta_K=0."))
 }
 
-l2_oracle_linf_outer_bounds <- function(data, parameters, nodes = 200L) {
+l2_oracle_linf_outer_bounds <- function(data, parameters, nodes = 200L,
+                                        model = c("net", "separated")) {
+  model <- match.arg(model)
   rR <- parameters$delta_R_inf; rA <- parameters$delta_A_inf
-  if (any(!is.finite(c(rR, rA)))) return(list(
+  rM <- if (is.null(parameters$delta_M_inf)) rR else parameters$delta_M_inf
+  rMiss <- if (model == "net") rM else rR
+  if (any(!is.finite(c(rMiss, rA)))) return(list(
     arm = NULL, ate = c(lower = -Inf, upper = Inf), finite = FALSE,
     method = "L-infinity/L1 Holder outer bound",
     note = "The linear-link DGP has infinite oracle L-infinity density-ratio radii."))
@@ -949,9 +959,9 @@ l2_oracle_linf_outer_bounds <- function(data, parameters, nodes = 200L) {
     center <- data[[paste0("mu_Y", a, "_given_XC0")]]
     absY <- rowSums(wO * abs(yy - center)) / rowSums(wO)
     e <- if (a == 1) data$p_A1_given_X else 1 - data$p_A1_given_X
-    b <- parameters$delta[a + 1L] * data[[paste0("p_C", a, "_given_X")]]
-    rad <- mean(absY * (b * rR[a + 1L] +
-      (1 - e) * (1 + b * rR[a + 1L]) * rA[a + 1L]))
+    box <- l2_linf_box(model, data[[paste0("p_C", a, "_given_X")]],
+      parameters$delta[a + 1L], rM[a + 1L], rR[a + 1L], rA[a + 1L], 1 - e)
+    rad <- mean(absY * (box$c_plus + box$c_minus) / 2)
     psi <- mean(data[[paste0("mu_Y", a, "_given_XC0")]])
     arm[a + 1L, ] <- c(psi - rad, psi + rad)
   }
@@ -959,15 +969,20 @@ l2_oracle_linf_outer_bounds <- function(data, parameters, nodes = 200L) {
     ate = c(lower = arm[2L, "lower"] - arm[1L, "upper"],
             upper = arm[2L, "upper"] - arm[1L, "lower"]),
     finite = TRUE, method = "L-infinity/L1 Holder outer bound",
-    note = "Valid outer comparison; conditional normalization can make the sharp L-infinity interval narrower.")
+    model = model,
+    note = "Valid sign-aware outer comparison; conditional normalization can make the sharp L-infinity interval narrower.")
 }
 
 l2_oracle_linf_sharp_bounds <- function(data, parameters, basis = NULL,
-                                        max_n = 1000L) {
+                                        max_n = 1000L,
+                                        model = c("net", "separated")) {
+  model <- match.arg(model)
   if (!requireNamespace("lpSolve", quietly = TRUE))
     stop("linf_method = 'sharp' requires the lpSolve package")
-  if (any(!is.finite(c(parameters$delta_R_inf,
-                       parameters$delta_A_inf))))
+  rM <- if (is.null(parameters$delta_M_inf)) parameters$delta_R_inf else
+    parameters$delta_M_inf
+  rMiss <- if (model == "net") rM else parameters$delta_R_inf
+  if (any(!is.finite(c(rMiss, parameters$delta_A_inf))))
     return(list(arm = NULL, ate = c(lower = -Inf, upper = Inf),
       finite = FALSE, method = "L-infinity sharp empirical sieve",
       note = "The DGP has infinite oracle L-infinity radii."))
@@ -987,36 +1002,12 @@ l2_oracle_linf_sharp_bounds <- function(data, parameters, basis = NULL,
   diagnostics <- vector("list", 2L)
   for (a in 0:1) {
     r <- l2_reference_quantities(data$Y, data$A, data$C, a, nuisance)
-    use <- which(r$obs); m <- length(use)
-    if (!m) stop("No respondents in arm ", a)
-    ww <- r$w[use] / nrow(data); BB <- B[use, , drop = FALSE]
-    y <- r$y[use]; e <- r$e[use]; q <- r$q[use]
-    b <- parameters$delta[a + 1L] * r$pi[use]
-    rR <- parameters$delta_R_inf[a + 1L]
-    rA <- parameters$delta_A_inf[a + 1L]
-    ## Nonnegativity of R additionally requires M >= 1-b.  This constraint is
-    ## active whenever the symmetric L-infinity radius exceeds one.
-    mlo <- pmax(1 - b, 1 - b * rR); mup <- 1 + b * rR
-    klo <- pmax(0, 1 - rA); kup <- 1 + rA
-    Z <- matrix(0, m, m); I <- diag(m)
-    eqM <- cbind(t(BB * ww), matrix(0, ncol(BB), m))
-    eqL <- cbind(matrix(0, ncol(BB), m), t(BB * ww))
-    rhsM <- colSums(BB * ww)
-    Acon <- rbind(eqM, eqL,
-      cbind(I, Z), cbind(I, Z),
-      cbind(-kup * I, I), cbind(-klo * I, I))
-    dirs <- c(rep("=", 2 * ncol(BB)), rep("<=", m), rep(">=", m),
-              rep("<=", m), rep(">=", m))
-    rhs <- c(rhsM, rhsM, mup, mlo, rep(0, 2 * m))
-    objective <- c(ww * y * e, ww * y * q)
-    lo <- lpSolve::lp("min", objective, Acon, dirs, rhs)
-    hi <- lpSolve::lp("max", objective, Acon, dirs, rhs)
-    if (lo$status != 0 || hi$status != 0)
-      stop("Sharp L-infinity LP failed in arm ", a,
-           " (statuses ", lo$status, ", ", hi$status, ")")
-    arm[a + 1L, ] <- c(lo$objval, hi$objval)
-    diagnostics[[a + 1L]] <- list(n_respondents = m,
-      lower_status = lo$status, upper_status = hi$status)
+    if (!any(r$obs)) stop("No respondents in arm ", a)
+    box <- l2_linf_box(model, r$pi, parameters$delta[a + 1L], rM[a + 1L],
+      parameters$delta_R_inf[a + 1L], parameters$delta_A_inf[a + 1L], r$q)
+    lp <- l2_linf_arm_lp(r, B, box, max_n = nrow(data))
+    arm[a + 1L, ] <- c(lp$lower, lp$upper)
+    diagnostics[[a + 1L]] <- lp$diagnostics
   }
   list(arm = arm,
     ate = c(lower = arm[2L, "lower"] - arm[1L, "upper"],

@@ -84,6 +84,6 @@ The 10 remaining failures are in `test-coverage.R` (complex statistical simulati
 
 ## References
 
-- Quality assessment report: `quality_reports/marbounds_quality_assessment.md`
+- Quality assessment report: `quality_reports/jointbounds_quality_assessment.md`
 - Issues addressed: `quality_reports/issues_addressed.md`
 - Paper: Rubinstein et al. (2024) - Journal of Causal Inference (Accepted)

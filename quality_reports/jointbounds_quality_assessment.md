@@ -1,13 +1,13 @@
-# Quality Assessment Report: marbounds Package
+# Quality Assessment Report: jointbounds Package
 **Date:** 2026-03-13
 **Evaluator:** Agent-assisted quality assessment using operational software constitution framework
-**Package:** marbounds v0.1.0 - Bounds on Causal Effects with Mixed Informative and Non-Informative Missingness
+**Package:** jointbounds v0.1.0 - Bounds on Causal Effects with Mixed Informative and Non-Informative Missingness
 
 ---
 
 ## Executive Summary
 
-The **marbounds** package is a **research-quality R package** implementing causal inference methods under complex missingness assumptions. Overall quality score: **85/100** (above commit threshold, approaching deploy threshold).
+The **jointbounds** package is a **research-quality R package** implementing causal inference methods under complex missingness assumptions. Overall quality score: **85/100** (above commit threshold, approaching deploy threshold).
 
 ### Strengths
 ✅ **Comprehensive testing** — 69 passing tests across critical functionality
@@ -77,7 +77,7 @@ All algorithms dropped from library
 **⚠️ Issues:**
 - ❌ **No set.seed() in user-facing examples or scripts** — Examples in README and documentation don't set seeds
 - ⚠️ **Default seed** (line 35 of nuisance.R): `if (is.null(seed)) seed <- 1L` — This ensures determinism but should be documented
-- ⚠️ No explicit package loading pattern in examples (assumes library(marbounds) + SuperLearner)
+- ⚠️ No explicit package loading pattern in examples (assumes library(jointbounds) + SuperLearner)
 
 **Critical fix needed:** Add `set.seed()` to all examples in README.md and function documentation.
 
@@ -309,7 +309,7 @@ Using the operational software constitution framework:
 
 ### Quality Standards Mapping
 
-| Meta-Spec Standard | marbounds Status |
+| Meta-Spec Standard | jointbounds Status |
 |-------------------|------------------|
 | **Reproducibility** | ⚠️ Partial (needs seeds in examples) |
 | **Testing** | ⚠️ Good (but test reliability issues) |
@@ -336,7 +336,7 @@ Using the operational software constitution framework:
 
 ### Recommendation: **Approved for research use with minor fixes**
 
-The **marbounds** package is **well-designed, mathematically rigorous, and suitable for research use**. The core methodology is implemented correctly with robust error handling. However, it needs **documentation improvements** (vignettes, examples with seeds) and **test refinements** (larger sample sizes) before it's ready for:
+The **jointbounds** package is **well-designed, mathematically rigorous, and suitable for research use**. The core methodology is implemented correctly with robust error handling. However, it needs **documentation improvements** (vignettes, examples with seeds) and **test refinements** (larger sample sizes) before it's ready for:
 - CRAN submission
 - Wide public distribution
 - Production use in operational pipelines

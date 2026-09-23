@@ -20,14 +20,14 @@ knitr::opts_chunk$set(
 
 ## Overview
 
-This vignette covers advanced usage of **marbounds**, including:
+This vignette covers advanced usage of **jointbounds**, including:
 - Custom SuperLearner configurations
 - Understanding nuisance parameter estimation
 - Working with influence functions
 - Technical options and performance tuning
 
 ```{r}
-library(marbounds)
+library(jointbounds)
 suppressPackageStartupMessages(library(SuperLearner))
 ```
 

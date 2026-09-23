@@ -8,7 +8,7 @@ vignette: >
 ---
 
 ```{r setup, message=FALSE}
-library(marbounds)
+library(jointbounds)
 ```
 
 ## A moment-valid continuous-outcome simulation
@@ -225,14 +225,36 @@ chosen empirical sieve. It requires the suggested `lpSolve` package. The
 two variables per respondent and pointwise constraints per row.
 
 For an observed dataset rather than the known simulation law, use the
-data-facing comparison directly:
+data-facing comparison directly. The default `model = "net"` imposes the
+pointwise boxes `|M_a - 1| <= delta_M_inf` and `|K_a - 1| <= delta_K_inf`;
+`model = "separated"` instead bounds the prevalence--severity ratio
+`|R_a - 1| <= delta_R_inf` with prevalence cap `delta * pi_a(X)`. The outer
+interval uses the sign-aware Holder radius
+`E|Z| {C^+(X) + C^-(X)} / 2`, whose downward corners respect `M_a >= rho_a`
+and `K_a >= 0`.
 
 ```{r linf-data, eval=FALSE}
 l2_linf_bounds(
-  dat, "Y", "A", "C", c("X1", "X2"), delta = .5,
-  delta_R_inf = .4, delta_A_inf = .3, method = "both"
+  dat, "Y", "A", "C", c("X1", "X2"),
+  delta_M_inf = .2, delta_K_inf = .3, method = "both"
 )
 ```
+
+Unlike the L2 functions above, `l2_linf_bounds()` has no doubly robust
+estimator and returns no standard errors or confidence intervals.
+
+- The outer interval is centred at the cross-fitted AIPW arm mean, but its
+  Holder radius is a non-orthogonalized inverse-weighted plug-in.
+- The sharp interval is a pure inverse-probability-weighted linear program. It
+  does not use the outcome regression, so it is consistent only if the
+  treatment and response models are.
+- The sharp program uses at most `max_n` respondents per arm, while the outer
+  interval uses the full sample. The two are therefore centred on different
+  estimates, so the estimated sharp interval need not lie inside the estimated
+  outer interval.
+
+Treat these L-infinity results as a sensitivity comparison, or, with known
+nuisances, as a population benchmark, rather than as a basis for inference.
 
 Here each oracle nuisance is perturbed in a fixed smooth direction with
 magnitude proportional to `n^(-nuisance_error_rate)`. Fixing the direction

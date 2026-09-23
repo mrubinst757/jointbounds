@@ -416,33 +416,41 @@ mar_bounds_grid_bands <- function(phi,
   }
 
   # ----- ATE -----
-  get_b_ate <- function(row, bound_type) {
-    delta_0u <- get_grid_param(row, c("delta_0u", "delta0u"), 1)
-    delta_1u <- get_grid_param(row, c("delta_1u", "delta1u"), 1)
-    delta <- get_grid_param(row, c("delta"), NULL)
-    tau_0 <- get_grid_param(row, c("tau_0", "tau0"), NULL)
-    tau_1 <- get_grid_param(row, c("tau_1", "tau1"), NULL)
-    tau <- get_grid_param(row, c("tau", "tau"), NULL)
+  # Resolve per-arm ATE parameters from a grid row. Arm-specific columns take
+  # precedence, then delta_0/delta_1, then the delta/tau shorthands; numeric
+  # defaults are applied only after the shorthands (tau_1 defaults to tau_0,
+  # matching the scalar bounded_risk path).
+  resolve_ate_params <- function(row) {
+    delta_0u <- get_grid_param(row, c("delta_0u", "delta0u"))
+    delta_1u <- get_grid_param(row, c("delta_1u", "delta1u"))
+    delta <- get_grid_param(row, c("delta"))
+    tau_0 <- get_grid_param(row, c("tau_0", "tau0"))
+    tau_1 <- get_grid_param(row, c("tau_1", "tau1"))
+    tau <- get_grid_param(row, c("tau"))
     delta_0 <- get_grid_param(row, c("delta_0", "delta0"))
     delta_1 <- get_grid_param(row, c("delta_1", "delta1"))
 
-    # Support shorthand: if only delta provided, apply to both arms; if only tau provided, apply to both arms
-    if (!is.null(delta)) {
-      if (is.null(delta_0u)) delta_0u <- delta
-      if (is.null(delta_1u)) delta_1u <- delta
+    if (is.null(delta_0u)) delta_0u <- delta_0 %||% delta %||% 1
+    if (is.null(delta_1u)) delta_1u <- delta_1 %||% delta %||% 1
+    if (is.null(tau_0)) tau_0 <- tau
+    if (is.null(tau_1)) tau_1 <- tau
+    if (assumption == "bounded_risk") {
+      if (is.null(tau_0)) tau_0 <- 2
+      if (is.null(tau_1)) tau_1 <- tau_0
     }
-    if (!is.null(tau)) {
-      if (is.null(tau_0)) tau_0 <- tau
-      if (is.null(tau_1)) tau_1 <- tau
-    }
+    list(delta_0u = delta_0u, delta_1u = delta_1u, tau_0 = tau_0, tau_1 = tau_1,
+         tau = tau, delta_0 = delta_0, delta_1 = delta_1)
+  }
 
-    # Allow delta_0/delta_1 as shorthand for delta_0u/delta_1u when using bounds
-    if (!is.null(delta_0) && is.null(row$delta_0u) && is.null(row$delta0u)) {
-      delta_0u <- delta_0
-    }
-    if (!is.null(delta_1) && is.null(row$delta_1u) && is.null(row$delta1u)) {
-      delta_1u <- delta_1
-    }
+  get_b_ate <- function(row, bound_type) {
+    p <- resolve_ate_params(row)
+    delta_0u <- p$delta_0u
+    delta_1u <- p$delta_1u
+    tau_0 <- p$tau_0
+    tau_1 <- p$tau_1
+    tau <- p$tau
+    delta_0 <- p$delta_0
+    delta_1 <- p$delta_1
 
     if (assumption == "point_ate" && !is.null(delta_0) && !is.null(delta_1)) {
       return(coef_point_ate(delta_0, delta_1, tau %||% 2))
@@ -476,32 +484,22 @@ mar_bounds_grid_bands <- function(phi,
       if (bound_type == "lower") return(coef_general_lower_ate())
       return(coef_general_upper_ate())
     }
-    coef_point_ate(delta_0 %||% 0.5, delta_1 %||% 0.5, tau)
+    coef_point_ate(delta_0 %||% 0.5, delta_1 %||% 0.5, tau %||% 2)
   }
 
   # ----- Psi_1 -----
   get_b_psi1 <- function(row, bound_type) {
-    delta_0u <- get_grid_param(row, c("delta_0u", "delta0u"), 1)
-    delta_1u <- get_grid_param(row, c("delta_1u", "delta1u"), 1)
+    delta_0u <- get_grid_param(row, c("delta_0u", "delta0u"))
+    delta_1u <- get_grid_param(row, c("delta_1u", "delta1u"))
     delta_0l <- get_grid_param(row, c("delta_0l", "delta0l"), 0)
     delta_1l <- get_grid_param(row, c("delta_1l", "delta1l"), 0)
-    delta <- get_grid_param(row, c("delta"), NULL)
+    delta <- get_grid_param(row, c("delta"))
     delta_0 <- get_grid_param(row, c("delta_0", "delta0"))
     delta_1 <- get_grid_param(row, c("delta_1", "delta1"))
 
-    # Support shorthand: if only delta provided, apply to both arms
-    if (!is.null(delta)) {
-      if (is.null(delta_0u)) delta_0u <- delta
-      if (is.null(delta_1u)) delta_1u <- delta
-    }
-
-    # Allow delta_0/delta_1 as shorthand for delta_0u/delta_1u when using bounds
-    if (!is.null(delta_0) && is.null(row$delta_0u) && is.null(row$delta0u)) {
-      delta_0u <- delta_0
-    }
-    if (!is.null(delta_1) && is.null(row$delta_1u) && is.null(row$delta1u)) {
-      delta_1u <- delta_1
-    }
+    # Arm-specific columns first, then delta_0/delta_1, then the delta shorthand
+    if (is.null(delta_0u)) delta_0u <- delta_0 %||% delta %||% 1
+    if (is.null(delta_1u)) delta_1u <- delta_1 %||% delta %||% 1
 
     if (assumption == "point_psi1" && !is.null(delta_0) && !is.null(delta_1)) {
       return(coef_point_psi1(delta_0, delta_1))
@@ -537,23 +535,9 @@ mar_bounds_grid_bands <- function(phi,
         lower_estimates <- numeric(n_grid)
         lower_psi <- matrix(NA_real_, nrow = n, ncol = n_grid)
         for (j in seq_len(n_grid)) {
-          row <- as.list(grid_df[j, , drop = FALSE])
-          delta_0u <- get_grid_param(row, c("delta_0u", "delta0u"), 1)
-          delta_1u <- get_grid_param(row, c("delta_1u", "delta1u"), 1)
-          tau_0 <- get_grid_param(row, c("tau_0", "tau0"), 2)
-          tau_1 <- get_grid_param(row, c("tau_1", "tau1"), 2)
-
-          phi1_0 <- phi[, 1]
-          phi1_1 <- phi[, 2]
-          phi2_0 <- phi[, 3]
-          phi2_1 <- phi[, 4]
-          phi3_0 <- phi[, 5]
-          phi3_1 <- phi[, 6]
-
-          mask0 <- (tau_0 * mu0 > 1)
-          lower_vec <- (phi1_1 - phi1_0) +
-            delta_1u * ((tau_1^{-1} - 1) * phi3_1) -
-            delta_0u * ((phi2_0 - phi3_0) * mask0 + (tau_0 - 1) * phi3_0 * (!mask0))
+          p <- resolve_ate_params(as.list(grid_df[j, , drop = FALSE]))
+          lower_vec <- bounded_risk_scores(phi, mu0, mu1, p$delta_0u, p$delta_1u,
+                                           p$tau_0, p$tau_1, "lower")
 
           val <- mean(lower_vec)
           lower_estimates[j] <- val
@@ -564,22 +548,9 @@ mar_bounds_grid_bands <- function(phi,
         upper_estimates <- numeric(n_grid)
         upper_psi <- matrix(NA_real_, nrow = n, ncol = n_grid)
         for (j in seq_len(n_grid)) {
-          row <- as.list(grid_df[j, , drop = FALSE])
-          delta_0u <- get_grid_param(row, c("delta_0u", "delta0u"), 1)
-          delta_1u <- get_grid_param(row, c("delta_1u", "delta1u"), 1)
-          tau_0 <- get_grid_param(row, c("tau_0", "tau0"), 2)
-          tau_1 <- get_grid_param(row, c("tau_1", "tau1"), 2)
-
-          phi1_0 <- phi[, 1]
-          phi1_1 <- phi[, 2]
-          phi2_1 <- phi[, 4]
-          phi3_0 <- phi[, 5]
-          phi3_1 <- phi[, 6]
-
-          mask1 <- (tau_1 * mu1 > 1)
-          upper_vec <- (phi1_1 - phi1_0) +
-            delta_1u * ((phi2_1 - phi3_1) * mask1 + (tau_1 - 1) * phi3_1 * (!mask1)) -
-            delta_0u * ((tau_0^{-1} - 1) * phi3_0)
+          p <- resolve_ate_params(as.list(grid_df[j, , drop = FALSE]))
+          upper_vec <- bounded_risk_scores(phi, mu0, mu1, p$delta_0u, p$delta_1u,
+                                           p$tau_0, p$tau_1, "upper")
 
           val <- mean(upper_vec)
           upper_estimates[j] <- val

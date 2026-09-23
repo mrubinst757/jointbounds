@@ -1,10 +1,28 @@
 # jointbounds
 
-`jointbounds` is the development repository for the `marbounds` R package. It
-implements bounds on causal effects under joint sensitivity to informative
-missingness and unmeasured confounding, while retaining the original
-mixed-missingness methods (see *Bounding causal effects with an unknown mixture
-of informative and non-informative missingness*, https://arxiv.org/pdf/2411.16902).
+`jointbounds` bounds causal effects under joint sensitivity to informative
+missingness and unmeasured confounding. It implements the methods in *Joint
+Distributional Sensitivity Analysis for Unmeasured Confounding and Mixed
+Informative Missingness* and retains the original mixed-missingness methods of
+*Bounding causal effects with an unknown mixture of informative and
+non-informative missingness* (https://arxiv.org/pdf/2411.16902).
+
+> **`jointbounds` supersedes `marbounds`.** All `marbounds` functionality is
+> included here, and `marbounds` will not receive further development.
+
+### Migrating from marbounds
+
+- Replace `library(marbounds)` with `library(jointbounds)`, and
+  `marbounds::f()` with `jointbounds::f()`.
+- Exported function names and arguments are unchanged. For example,
+  `mar_bounds()`, `generate_ate()`, `multiplier_bootstrap_grid()` and the
+  `l2_*()` functions all work as before.
+- S3 classes are renamed from `marbounds_*` to `jointbounds_*`; for example,
+  `marbounds_l2` becomes `jointbounds_l2`. Update any code that calls
+  `inherits()` on the old class names.
+- Version 0.4.0 fixes several bugs from `marbounds` 0.3.0 that can change
+  numerical results. Among them, the default binary analyses previously used
+  marginal-mean nuisances. See [NEWS.md](NEWS.md).
 
 ## Key features
 
@@ -14,9 +32,18 @@ of informative and non-informative missingness*, https://arxiv.org/pdf/2411.1690
 - **User-specified estimand**: Average treatment effect (ATE), composite ATE (Ψ₁), or separable direct effect (Ψ₂).
 - **User-specified assumptions**: General bounds, bounded proportion of informative missingness (δ), monotonicity (positive/negative), bounded outcome risk (τ), or point identification under known sensitivity parameters.
 - **Multiplier bootstrap**: Simultaneous inference over a grid of sensitivity parameters via multiplier bootstrap.
-- **Continuous outcomes**: Global L2 Cauchy--Schwarz bounds, empirical sharp
-  sieve-dual bounds, reduced-form net-missingness models, calibration, bootstrap
-  uncertainty, sensitivity surfaces, and tipping frontiers.
+- **Continuous outcomes**:
+  - **Bounds**: global L2 Cauchy--Schwarz bounds, empirical sharp sieve-dual
+    bounds with cross-fitted EIF inference, and reduced-form net-missingness
+    (`model = "net"`) and prevalence--severity (`model = "separated"`)
+    models.
+  - **L-infinity comparisons** (`l2_linf_bounds()`): sign-aware Hölder outer
+    bounds and sharp-sieve LP bounds. These are plug-in estimates without
+    inference: the sharp LP is inverse-probability weighted, and neither
+    interval has a doubly robust estimator.
+  - **Uncertainty**: multiplier simultaneous bands and bootstrap uncertainty.
+  - **Sensitivity and calibration**: sensitivity surfaces, tipping frontiers,
+    and covariate-omission calibration frontiers.
 
 The continuous module defaults to cross-fitted SuperLearner nuisance models.
 Its `sharp` method is an empirical conditional-normalization sieve-dual
@@ -33,12 +60,10 @@ Install the current development version from GitHub:
 remotes::install_github("mrubinst757/jointbounds")
 ```
 
-The earlier release remains available from R-universe:
-
-```r
-# Install from r-universe
-install.packages('marbounds', repos = 'https://mrubinst757.r-universe.dev')
-```
+The legacy `marbounds` release is still on R-universe
+(`install.packages("marbounds", repos = "https://mrubinst757.r-universe.dev")`),
+but new work should use `jointbounds`. The two packages can be installed side
+by side, but they export the same function names, so attach only one of them.
 
 Requires: `SuperLearner` (and its dependencies).
 
@@ -47,7 +72,7 @@ Requires: `SuperLearner` (and its dependencies).
 Install and load the package, then load SuperLearner (required for nuisance estimation). Simulated data: `Y` outcome, `A` treatment, `C` missingness (1 = missing), `X` covariates.
 
 ```r
-library(marbounds)
+library(jointbounds)
 suppressPackageStartupMessages(library(SuperLearner))
 
 n <- 500
@@ -192,6 +217,15 @@ design <- l2_simulation_design("fast")
 # For a sharp-for-sieve comparison (requires lpSolve):
 # sim_cf <- l2_compare_dr_plugin(..., linf_method = "both", linf_max_n = 1000)
 
+# Data-facing L-infinity comparison. The default net model bounds
+# |M_a - 1| <= delta_M_inf and |K_a - 1| <= delta_K_inf; the outer interval
+# uses the sign-aware Holder radius. Plug-in estimates only (no DR estimator,
+# no standard errors); the sharp LP is IPW and ignores the outcome regression.
+linf <- l2_linf_bounds(
+  dat_cont, "Y", "A", "C", c("X1", "X2"),
+  delta_M_inf = 0.2, delta_K_inf = 0.3, method = "outer"
+)
+
 grid <- expand.grid(
   delta_M = seq(0, 0.4, length.out = 5),
   delta_K = seq(0, 0.3, length.out = 5)
@@ -275,6 +309,18 @@ specified by `basis`. Always inspect optimizer convergence, achieved divergence
 budgets, and normalization residuals in `fit_l2$diagnostics` before reporting a
 sharp endpoint.
 
-## Reference
+## References
 
-Methods and notation follow the paper on bounding causal effects under mixed informative and non-informative missingness, with influence-function-based estimation and cross-fitting. Note: by default, the bounded_risk option uses the method that assumes $\mu_a^\star/\mu_a \le \min(1/\mu_a, \tau_a)$, outlined in detail the Appendix. The option in the main paper may be recovered using the ``bounded_risk_unbounded_tau'' option.
+- Rubinstein, M., Agniel, D., Horvitz-Lennon, M., & Normand, S.-L. *Joint
+  Distributional Sensitivity Analysis for Unmeasured Confounding and Mixed
+  Informative Missingness.* Working paper. The `l2_*()` functions and the
+  continuous-outcome methods follow this paper.
+- Rubinstein, M., Agniel, D., Han, L., Horvitz-Lennon, M., & Normand, S.-L.
+  (2026). *Bounding causal effects with an unknown mixture of informative and
+  non-informative missingness.* Journal of Causal Inference (accepted).
+  https://arxiv.org/pdf/2411.16902. `mar_bounds()` and the binary-outcome
+  methods follow this paper; they were formerly distributed as `marbounds`.
+
+Run `citation("jointbounds")` for citation details.
+
+Note: by default, the bounded_risk option uses the method that assumes $\mu_a^\star/\mu_a \le \min(1/\mu_a, \tau_a)$, outlined in detail the Appendix. The option in the main paper may be recovered using the ``bounded_risk_unbounded_tau'' option.

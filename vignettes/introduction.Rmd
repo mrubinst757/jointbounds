@@ -1,10 +1,10 @@
 ---
-title: "Introduction to marbounds"
+title: "Introduction to jointbounds"
 author: "Max Rubinstein, Denis Agniel, Larry Han, Marcela Horvitz-Lennon, Sharon-Lise Normand"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Introduction to marbounds}
+  %\VignetteIndexEntry{Introduction to jointbounds}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -20,7 +20,7 @@ knitr::opts_chunk$set(
 
 ## Overview
 
-The **marbounds** package implements methods for bounding causal effects when outcomes are missing under a mixture of informative and non-informative missingness. This vignette introduces the basic usage of the package.
+The **jointbounds** package implements methods for bounding causal effects when outcomes are missing under a mixture of informative and non-informative missingness. This vignette introduces the basic usage of the package.
 
 ### Key Features
 
@@ -33,13 +33,14 @@ The **marbounds** package implements methods for bounding causal effects when ou
 ## Installation
 
 ```{r, eval = FALSE}
-# Install from r-universe
-install.packages('marbounds', repos = 'https://mrubinst757.r-universe.dev')```
+# Install the development version from GitHub
+remotes::install_github("mrubinst757/jointbounds")
+```
 
 Load the package and SuperLearner:
 
 ```{r}
-library(marbounds)
+library(jointbounds)
 suppressPackageStartupMessages(library(SuperLearner))
 ```
 

@@ -180,7 +180,7 @@ l2_basis_approximation <- function(data, parameters = NULL,
 #' @param continue_on_error If true, record a failed scenario and continue.
 #' @param checkpoint_file Optional RDS path updated after every scenario.
 #' @param ... Additional named arguments passed to `l2_compare_dr_plugin()`.
-#' @return An object of class `marbounds_l2_simulation` containing the design,
+#' @return An object of class `jointbounds_l2_simulation` containing the design,
 #'   scenario-specific fits, and tidy summaries.
 #' @export
 l2_simulation_study <- function(design = l2_simulation_design("main"),
@@ -302,12 +302,12 @@ l2_simulation_study <- function(design = l2_simulation_design("main"),
     settings = list(B = B, truth_n = truth_n, seed = seed,
       conf_level = conf_level, folds = folds, l2_method = l2_method,
       linf_method = linf_method), call = match.call())
-  class(out) <- c("marbounds_l2_simulation", "list")
+  class(out) <- c("jointbounds_l2_simulation", "list")
   out
 }
 
 #' @export
-print.marbounds_l2_simulation <- function(x, ...) {
+print.jointbounds_l2_simulation <- function(x, ...) {
   cat("Continuous-outcome L2 simulation study\n")
   cat("Scenarios:", nrow(x$design), "  completed:", nrow(x$diagnostics),
       "  failed:", nrow(x$failed_scenarios), "\n")
@@ -321,7 +321,7 @@ print.marbounds_l2_simulation <- function(x, ...) {
 #' @param metric `"coverage"`, `"bias"`, or `"width"`.
 #' @param ... Unused.
 #' @export
-plot.marbounds_l2_simulation <- function(x,
+plot.jointbounds_l2_simulation <- function(x,
                                          metric = c("coverage", "bias", "width"),
                                          ...) {
   if (!requireNamespace("ggplot2", quietly = TRUE))

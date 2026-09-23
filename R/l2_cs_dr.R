@@ -212,7 +212,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
          "plug-in intervals condition on fitted nuisances and need not account",
          "for first-order nuisance-estimation error."),
        call = match.call())
-  class(out) <- c("marbounds_l2_cs_cf", "list")
+  class(out) <- c("jointbounds_l2_cs_cf", "list")
   out
 }
 

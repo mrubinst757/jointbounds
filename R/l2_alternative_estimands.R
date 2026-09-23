@@ -114,7 +114,7 @@ l2_prevalence_bounds <- function(data, Y, A, C, X,
     out$nuisance <- nuisance
     out$optimizers <- lapply(support, `[[`, "q")
   }
-  class(out) <- "marbounds_l2_prevalence"
+  class(out) <- "jointbounds_l2_prevalence"
   out
 }
 

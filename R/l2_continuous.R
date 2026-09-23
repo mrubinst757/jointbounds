@@ -269,7 +269,7 @@ l2_diagnostic_note <- function() paste(
 #'   `simulate_l2_data()`. This is only for simulations in which the complete
 #'   DGP is known.
 #'
-#' @return An object of class `marbounds_l2` containing arm-specific and ATE
+#' @return An object of class `jointbounds_l2` containing arm-specific and ATE
 #'   bounds, observed reference means, diagnostics, and sensitivity parameters.
 #' @export
 l2_bounds <- function(data, Y, A, C, X,
@@ -373,7 +373,7 @@ l2_bounds <- function(data, Y, A, C, X,
       "DGP probabilities from simulate_l2_data(); sharp values retain the",
       "specified empirical normalization sieve and are unavailable for real data.")
   }
-  class(out) <- "marbounds_l2"
+  class(out) <- "jointbounds_l2"
   if (isTRUE(diagnostic_control$warn))
     l2_warn_diagnostics(diagnostic_summary, "Sharp-bound")
   out
@@ -396,7 +396,7 @@ l2_nuisance_sl <- function(data, Y, A, C, X, folds, seed,
 }
 
 #' @export
-print.marbounds_l2 <- function(x, ...) {
+print.jointbounds_l2 <- function(x, ...) {
   cat("Continuous-outcome L2 sensitivity bounds\n")
   cat("Model:", x$parameters$model, "\n\n")
   print(x$ate, row.names = FALSE)
@@ -411,15 +411,33 @@ print.marbounds_l2 <- function(x, ...) {
 
 #' Continuous-outcome L-infinity sensitivity bounds
 #'
-#' Computes the Holder outer comparison and/or the sharp empirical
-#' conditional-normalization sieve bound under symmetric likelihood-ratio boxes
-#' for informative missingness and confounding.  The outcome itself need not be
-#' bounded; finite bounds require finite likelihood-ratio radii and an
-#' integrable outcome under the respondent law.
+#' Computes the sign-aware Holder outer comparison and/or the sharp empirical
+#' conditional-normalization sieve bound under pointwise likelihood-ratio boxes
+#' for informative missingness and confounding.  The primary `"net"` model
+#' imposes `|M_a - 1| <= delta_M_inf` and `|K_a - 1| <= delta_K_inf`
+#' (Assumption 6 of the companion paper). The `"separated"` model instead
+#' bounds the prevalence--severity ratio, `|M_a - 1| <= delta pi_a(X)
+#' delta_R_inf`. The outcome itself need not be bounded; finite bounds require
+#' finite likelihood-ratio radii and an integrable outcome under the respondent
+#' law.
+#'
+#' These are plug-in point estimates without inference; no doubly robust
+#' (EIF) estimator is implemented for either interval and no standard errors
+#' are returned. The outer interval is AIPW-centred with a non-orthogonalized
+#' inverse-weighted Holder radius. The sharp interval is a pure
+#' inverse-probability-weighted LP on at most `max_n` respondents per arm that
+#' does not use the outcome regression, so it is consistent only if the
+#' treatment and response models are. Because of the different centring and
+#' subsampling, the estimated sharp interval need not lie inside the estimated
+#' outer interval.
 #'
 #' @inheritParams l2_bounds
-#' @param delta_R_inf,delta_A_inf Length-two L-infinity radii for the
-#'   missingness and confounding likelihood ratios.
+#' @param delta_M_inf Length-two L-infinity radii for the net missingness tilt
+#'   `M_a` (used when `model = "net"`). Defaults to `delta_R_inf`.
+#' @param delta_R_inf Length-two L-infinity radii for the informative-severity
+#'   ratio `R_a` (used when `model = "separated"`).
+#' @param delta_A_inf,delta_K_inf Length-two L-infinity radii for the
+#'   confounding tilt `K_a`; `delta_K_inf` overrides the legacy `delta_A_inf`.
 #' @param max_n Maximum number of respondent observations per arm in the sharp
 #'   linear program.  The outer bound always uses the full sample.
 #' @return An object with arm-specific and ATE bounds and sharp-LP diagnostics.
@@ -431,14 +449,19 @@ l2_linf_bounds <- function(data, Y, A, C, X, delta = c(1, 1),
                            nuisance_method = c("SuperLearner", "glm"),
                            sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
                            sl_lib_outcome = "SL.glm", basis = NULL,
-                           max_n = 1000L, seed = 1L) {
+                           max_n = 1000L, seed = 1L,
+                           model = c("net", "separated"),
+                           delta_M_inf = delta_R_inf, delta_K_inf = NULL) {
   method <- match.arg(method)
+  model <- match.arg(model)
   nuisance_method <- match.arg(nuisance_method)
   delta <- l2_as_pair(delta, "delta", 1)
   delta_R_inf <- l2_as_pair(delta_R_inf, "delta_R_inf")
-  delta_A_inf <- l2_as_pair(delta_A_inf, "delta_A_inf")
+  delta_M_inf <- l2_as_pair(delta_M_inf, "delta_M_inf")
+  if (!is.null(delta_K_inf)) delta_A_inf <- delta_K_inf
+  delta_A_inf <- l2_as_pair(delta_A_inf, "delta_K_inf")
   inp <- l2_validate_inputs(data, Y, A, C, X, delta, delta_R_inf,
-                            delta_A_inf, delta_R_inf)
+                            delta_A_inf, delta_M_inf)
   max_n <- as.integer(max_n)
   if (length(max_n) != 1L || !is.finite(max_n) || max_n < 20L)
     stop("max_n must be an integer of at least 20")
@@ -450,19 +473,16 @@ l2_linf_bounds <- function(data, Y, A, C, X, delta = c(1, 1),
   arm_rows <- list(); diagnostics <- vector("list", 2L); h <- 0L
   for (a in 0:1) {
     r <- l2_reference_quantities(inp$y, inp$A, inp$C, a, nuisance)
-    b <- delta[a + 1L] * r$pi
-    zabs <- abs(r$z)
-    rad <- mean(r$w * zabs *
-      (b * delta_R_inf[a + 1L] + r$q *
-       (1 + b * delta_R_inf[a + 1L]) * delta_A_inf[a + 1L]))
+    box <- l2_linf_box(model, r$pi, delta[a + 1L], delta_M_inf[a + 1L],
+                       delta_R_inf[a + 1L], delta_A_inf[a + 1L], r$q)
+    rad <- mean(r$w * abs(r$z) * (box$c_plus + box$c_minus) / 2)
     if (method %in% c("outer", "both")) {
       h <- h + 1L
       arm_rows[[h]] <- data.frame(arm = a, method = "linf_outer",
         lower = r$psi - rad, upper = r$psi + rad, reference = r$psi)
     }
     if (method %in% c("sharp", "both")) {
-      lp <- l2_linf_arm_lp(r, B, b, delta_R_inf[a + 1L],
-                           delta_A_inf[a + 1L], max_n)
+      lp <- l2_linf_arm_lp(r, B, box, max_n)
       h <- h + 1L
       arm_rows[[h]] <- data.frame(arm = a, method = "linf_sharp_sieve",
         lower = lp$lower, upper = lp$upper, reference = r$psi)
@@ -478,13 +498,36 @@ l2_linf_bounds <- function(data, Y, A, C, X, delta = c(1, 1),
       estimate_reference = z1$reference - z0$reference)
   }))
   out <- list(arm = arm, ate = ate, diagnostics = diagnostics,
-    parameters = list(delta = delta, delta_R_inf = delta_R_inf,
-      delta_A_inf = delta_A_inf, method = method), call = match.call())
-  class(out) <- c("marbounds_linf", "list")
+    parameters = list(delta = delta, delta_M_inf = delta_M_inf,
+      delta_R_inf = delta_R_inf, delta_A_inf = delta_A_inf,
+      delta_K_inf = delta_A_inf, model = model, method = method),
+    call = match.call())
+  class(out) <- c("jointbounds_linf", "list")
   out
 }
 
-l2_linf_arm_lp <- function(r, B, b, delta_R_inf, delta_A_inf, max_n) {
+## Pointwise box for (M_a - 1, K_a - 1) and the extreme values -C^- <= g <= C^+
+## of the combined distortion g = u + e_{1-a}(1 + u)k.  Nonnegativity of the
+## density ratios caps the downward deviations: M_a >= rho_a and K_a >= 0.
+l2_linf_box <- function(model, pi, delta, delta_M_inf, delta_R_inf,
+                        delta_K_inf, q) {
+  if (model == "net") {
+    m_up <- rep(delta_M_inf, length(pi))
+    m_down <- pmin(delta_M_inf, pi)
+  } else {
+    b <- delta * pi
+    m_up <- b * delta_R_inf
+    m_down <- b * min(delta_R_inf, 1)
+  }
+  k_up <- delta_K_inf; k_down <- min(delta_K_inf, 1)
+  list(m_lower = 1 - m_down, m_upper = 1 + m_up,
+       k_lower = 1 - k_down, k_upper = 1 + k_up,
+       envelope = 1 - pi,
+       c_plus = m_up + q * k_up * (1 + m_up),
+       c_minus = m_down + q * k_down * (1 - m_down))
+}
+
+l2_linf_arm_lp <- function(r, B, box, max_n) {
   if (!requireNamespace("lpSolve", quietly = TRUE))
     stop("Sharp L-infinity bounds require the suggested package lpSolve")
   all_use <- which(r$obs)
@@ -498,14 +541,12 @@ l2_linf_arm_lp <- function(r, B, b, delta_R_inf, delta_A_inf, max_n) {
     ww <- ww * target_mass / sum(ww)
   }
   BB <- B[use, , drop = FALSE]
-  y <- r$y[use]; e <- r$e[use]; q <- r$q[use]; bb <- b[use]
+  y <- r$y[use]; e <- r$e[use]; q <- r$q[use]
   m <- length(use); Z <- matrix(0, m, m); I <- diag(m)
-  ## R is nonnegative in addition to satisfying |R-1| <= delta_R_inf.
-  ## Therefore M cannot fall below the mixture envelope 1-b even when the
-  ## symmetric radius is greater than one.
-  mlo <- pmax(1 - bb, 1 - bb * delta_R_inf)
-  mup <- 1 + bb * delta_R_inf
-  klo <- max(0, 1 - delta_A_inf); kup <- 1 + delta_A_inf
+  ## The box lower limits already respect the mixture envelope M >= rho and
+  ## nonnegative K, even when a symmetric radius exceeds one.
+  mlo <- box$m_lower[use]; mup <- box$m_upper[use]
+  klo <- box$k_lower; kup <- box$k_upper
   eqM <- cbind(t(BB * ww), matrix(0, ncol(BB), m))
   eqL <- cbind(matrix(0, ncol(BB), m), t(BB * ww))
   rhsM <- colSums(BB * ww)
@@ -524,7 +565,8 @@ l2_linf_arm_lp <- function(r, B, b, delta_R_inf, delta_A_inf, max_n) {
        diagnostics = list(n_respondents = m, lower_status = lo$status,
          upper_status = hi$status, minimum_M_allowed = min(mlo),
          respondent_subsampled = length(use) < length(all_use),
-         mixture_envelope_respected = all(mlo >= 1 - bb - 1e-12)))
+         mixture_envelope_respected =
+           all(mlo >= box$envelope[use] - 1e-12)))
 }
 
 l2_validate_inputs <- function(data, Y, A, C, X, delta, delta_R, delta_A, delta_M) {
@@ -1090,7 +1132,7 @@ l2_oracle_cs <- function(data, delta, delta_R, delta_A, delta_M, model) {
 #' @param grid Data frame containing `delta_R` and `delta_A`, and optionally
 #'   `delta`, `delta_M`. Scalar columns are applied to both arms; arm-specific
 #'   columns may be supplied with suffixes `_0` and `_1`.
-#' @return An object of class `marbounds_l2_grid` with one ATE row per method
+#' @return An object of class `jointbounds_l2_grid` with one ATE row per method
 #'   and grid point, endpoint-level diagnostics for every sharp-bound fit, and
 #'   one diagnostic summary row per sensitivity-parameter pair.
 #' @export
@@ -1161,14 +1203,14 @@ l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
               diagnostics = raw_diagnostics,
               diagnostic_note = l2_diagnostic_note(),
               call = match.call())
-  class(out) <- "marbounds_l2_grid"
+  class(out) <- "jointbounds_l2_grid"
   if (isTRUE(diagnostic_control$warn))
     l2_warn_diagnostics(diagnostic_summary, "Sensitivity-grid")
   out
 }
 
 #' @export
-print.marbounds_l2_grid <- function(x, ...) {
+print.jointbounds_l2_grid <- function(x, ...) {
   cat("Continuous-outcome L2 sensitivity grid\n")
   cat("Grid points:", nrow(x$diagnostic_summary), "\n")
   if (any(x$diagnostic_summary$diagnostic_available)) {
@@ -1194,7 +1236,7 @@ print.marbounds_l2_grid <- function(x, ...) {
 l2_tipping_frontier <- function(x, threshold = 0,
                                 endpoint = c("lower", "upper"), plot = FALSE) {
   endpoint <- match.arg(endpoint)
-  d <- if (inherits(x, "marbounds_l2_grid")) x$results else x
+  d <- if (inherits(x, "jointbounds_l2_grid")) x$results else x
   radius_x <- if ("delta_M" %in% names(d)) "delta_M" else "delta_R"
   radius_y <- if ("delta_K" %in% names(d)) "delta_K" else "delta_A"
   if (!is.data.frame(d) || !all(c(radius_x, endpoint, "method") %in% names(d)))
@@ -1228,7 +1270,7 @@ l2_tipping_frontier <- function(x, threshold = 0,
     ans
   })
   out <- do.call(rbind, out)
-  class(out) <- c("marbounds_l2_frontier", "data.frame")
+  class(out) <- c("jointbounds_l2_frontier", "data.frame")
   attr(out, "endpoint") <- endpoint
   attr(out, "threshold") <- threshold
   attr(out, "radius_x") <- radius_x
@@ -1242,7 +1284,7 @@ l2_tipping_frontier <- function(x, threshold = 0,
 #' @param ... Additional graphical arguments passed to `plot()`.
 #' @return The frontier, invisibly.
 #' @export
-plot.marbounds_l2_frontier <- function(x, ...) {
+plot.jointbounds_l2_frontier <- function(x, ...) {
   radius_x <- attr(x, "radius_x"); radius_y <- attr(x, "radius_y")
   if (is.null(radius_x)) radius_x <- if ("delta_M" %in% names(x)) "delta_M" else "delta_R"
   if (is.null(radius_y)) radius_y <- if ("delta_K" %in% names(x)) "delta_K" else "delta_A"
@@ -1291,7 +1333,7 @@ l2_calibration_frontier <- function(x, benchmark,
                                     reference = NULL, radius_x = NULL,
                                     radius_y = NULL) {
   type <- match.arg(type)
-  d <- if (inherits(x, "marbounds_l2_grid")) x$results else x
+  d <- if (inherits(x, "jointbounds_l2_grid")) x$results else x
   if (!is.data.frame(d) || !all(c("lower", "upper", "method") %in% names(d)))
     stop("x must be a sensitivity-grid result with lower, upper, and method columns")
   if (length(benchmark) != 1L || !is.finite(benchmark))

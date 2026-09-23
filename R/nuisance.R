@@ -1,7 +1,7 @@
 l2_quiet_superlearner <- function(...) {
   # SuperLearner defaults to parent.frame() when resolving `All` and learner
-  # wrappers.  A namespace-qualified call from marbounds would otherwise look
-  # in the marbounds namespace and fail with "object 'All' not found".
+  # wrappers.  A namespace-qualified call from jointbounds would otherwise look
+  # in the jointbounds namespace and fail with "object 'All' not found".
   suppressWarnings(SuperLearner::SuperLearner(
     ..., verbose = FALSE, env = asNamespace("SuperLearner")
   ))
@@ -18,11 +18,12 @@ l2_quiet_superlearner <- function(...) {
 #' @param C Missingness indicator (1=missing, 0=observed).
 #' @param Y Outcome (NA or value when C=0); only used when C=0 for outcome models.
 #' @param V Number of cross-fitting folds (default 2; the calling function may use
-#'   \code{V=1} when a simple single-library SuperLearner such as \code{SL.glm} is used).
+#'   \code{V=1} when a simple single-library SuperLearner such as \code{SL.glm} is used,
+#'   in which case nuisances are fitted and predicted on the full sample).
 #' @param sl_lib_prop Character vector of SuperLearner library for propensity e (default "SL.glm").
 #' @param sl_lib_miss Character vector of SuperLearner library for missingness pi_0, pi_1 (default "SL.glm").
 #' @param sl_lib_outcome Character vector of SuperLearner library for outcome mu_0, mu_1 (default "SL.glm").
-#' @param stratify_mu Logical; if TRUE (default), estimate separate outcome models mu_0 and mu_1 stratified by treatment A. If FALSE, estimate a single pooled model E(Y|X,C=0) and predict for both A=0 and A=1.
+#' @param stratify_mu Logical; if TRUE (default), estimate separate outcome models mu_0 and mu_1 stratified by treatment A. If FALSE, estimate a single pooled model E(Y|X,A,C=0) with A as a covariate and predict at A=0 and A=1.
 #' @param family_Y Character; family for outcome model ("gaussian" or "binomial"). Default "gaussian".
 #' @param seed Optional seed for fold splits.
 #' @return List with components: e, pi0, pi1, mu0, mu1 (each length n), and fold_id (fold index per row).
@@ -59,7 +60,8 @@ estimate_nuisance <- function(X, A, C, Y,
   sl_errors <- character()
 
   for (v in seq_len(V)) {
-    train <- fold_id != v
+    # V = 1 means no sample splitting: fit and predict on the full sample.
+    train <- if (V == 1L) rep(TRUE, n) else fold_id != v
     eval <- fold_id == v
     n_train <- sum(train)
     Xtrain <- X[train, , drop = FALSE]
@@ -166,12 +168,20 @@ estimate_nuisance <- function(X, A, C, Y,
         mu0[eval] <- mu_pooled
         mu1[eval] <- mu_pooled
       } else {
+        # A enters the pooled design so that mu0 and mu1 can differ; predict
+        # both arms by setting A = 0 and A = 1 on the evaluation fold.
+        XA_train <- data.frame(X[io, , drop = FALSE], .A = A[io])
+        n_eval <- sum(eval)
+        XA_eval <- rbind(
+          data.frame(Xeval, .A = rep(0, n_eval)),
+          data.frame(Xeval, .A = rep(1, n_eval))
+        )
         fit_mu_pooled <- tryCatch(
           {
             l2_quiet_superlearner(
                 Y = Y_io,
-                X = as.data.frame(X[io, , drop = FALSE]),
-                newX = as.data.frame(Xeval),
+                X = XA_train,
+                newX = XA_eval,
                 family = family_Y_object,
                 SL.library = sl_lib_outcome
             )
@@ -182,13 +192,13 @@ estimate_nuisance <- function(X, A, C, Y,
         )
         if (!is.null(fit_mu_pooled)) successful_sl_fits <- successful_sl_fits + 1L
         if (is.null(fit_mu_pooled)) {
-          mu_pooled <- mean(Y_io, na.rm = TRUE)
-          mu0[eval] <- mu_pooled
-          mu1[eval] <- mu_pooled
+          mu_all <- mean(Y_io, na.rm = TRUE)
+          mu0[eval] <- if (any(A[io] == 0)) mean(Y_io[A[io] == 0], na.rm = TRUE) else mu_all
+          mu1[eval] <- if (any(A[io] == 1)) mean(Y_io[A[io] == 1], na.rm = TRUE) else mu_all
         } else {
-          pred <- fit_mu_pooled$SL.predict
-          mu0[eval] <- pred
-          mu1[eval] <- pred
+          pred <- as.numeric(fit_mu_pooled$SL.predict)
+          mu0[eval] <- pred[seq_len(n_eval)]
+          mu1[eval] <- pred[n_eval + seq_len(n_eval)]
         }
       }
     }

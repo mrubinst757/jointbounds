@@ -1,4 +1,21 @@
 bibentry(
+  bibtype = "Unpublished",
+  title = "Joint Distributional Sensitivity Analysis for Unmeasured Confounding and Mixed Informative Missingness",
+  author = c(person("Max", "Rubinstein"),
+             person("Denis", "Agniel"),
+             person("Marcela", "Horvitz-Lennon"),
+             person("Sharon-Lise", "Normand")),
+  year = "2026",
+  note = "Working paper",
+  header = "To cite jointbounds in publications use:",
+  textVersion = paste(
+    "Rubinstein, M., Agniel, D., Horvitz-Lennon, M., & Normand, S.-L. (2026).",
+    "Joint Distributional Sensitivity Analysis for Unmeasured Confounding and Mixed Informative Missingness.",
+    "Working paper."
+  )
+)
+
+bibentry(
   bibtype = "Article",
   title = "Bounding causal effects with an unknown mixture of informative and non-informative missingness",
   author = c(person("Max", "Rubinstein"),
@@ -10,7 +27,7 @@ bibentry(
   journal = "Journal of Causal Inference",
   note = "Accepted",
   url = "https://arxiv.org/pdf/2411.16902",
-  header = "To cite marbounds in publications use:",
+  header = "For the binary-outcome mixed-missingness bounds (formerly marbounds) use:",
   textVersion = paste(
     "Rubinstein, M., Agniel, D., Han, L., Horvitz-Lennon, M., & Normand, S.-L. (2026).",
     "Bounding causal effects with an unknown mixture of informative and non-informative missingness.",

@@ -8,7 +8,7 @@ knitr::opts_chunk$set(
 
 
 ## -----------------------------------------------------------------------------
-library(marbounds)
+library(jointbounds)
 suppressPackageStartupMessages(library(SuperLearner))
 
 

@@ -1,8 +1,8 @@
 \name{l2_sensitivity_grid}
 \alias{l2_sensitivity_grid}
-\alias{print.marbounds_l2_grid}
+\alias{print.jointbounds_l2_grid}
 \alias{l2_tipping_frontier}
-\alias{plot.marbounds_l2_frontier}
+\alias{plot.jointbounds_l2_frontier}
 \title{Continuous-outcome L2 sensitivity surfaces and tipping frontiers}
 \usage{
 l2_sensitivity_grid(data, Y, A, C, X, grid, delta = c(1, 1),
@@ -12,11 +12,11 @@ l2_sensitivity_grid(data, Y, A, C, X, grid, delta = c(1, 1),
   sl_lib_outcome = "SL.glm", basis = NULL, seed = 1L,
   control = list(), diagnostic_control = list())
 
-\method{print}{marbounds_l2_grid}(x, ...)
+\method{print}{jointbounds_l2_grid}(x, ...)
 
 l2_tipping_frontier(x, threshold = 0, endpoint = c("lower", "upper"), plot = FALSE)
 
-\method{plot}{marbounds_l2_frontier}(x, ...)
+\method{plot}{jointbounds_l2_frontier}(x, ...)
 }
 \arguments{
   \item{data, Y, A, C, X, delta, model, method, folds, nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, basis, seed, control, diagnostic_control}{As in \code{l2_bounds()}.}

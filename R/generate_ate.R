@@ -29,7 +29,7 @@
 #'   the consolidated warning.
 #' @param keep_nuisance Return row-level cross-fitted nuisance estimates.
 #'
-#' @return An object of class `marbounds_ate`. Its `ate` component contains the
+#' @return An object of class `jointbounds_ate`. Its `ate` component contains the
 #'   cross-fitted AIPW estimate, standard error, and Wald interval; `arm`
 #'   contains the corresponding potential-outcome means. Centered influence
 #'   scores and positivity diagnostics are also returned.
@@ -74,7 +74,7 @@ generate_ate <- function(data, Y, A, C, X,
   fit_data <- data
   fit_X <- X
   if (!length(fit_X) && nuisance_method == "SuperLearner") {
-    intercept_name <- ".marbounds_intercept"
+    intercept_name <- ".jointbounds_intercept"
     while (intercept_name %in% names(fit_data))
       intercept_name <- paste0(intercept_name, "_")
     fit_data[[intercept_name]] <- 0
@@ -184,7 +184,7 @@ generate_ate <- function(data, Y, A, C, X,
     call = match.call()
   )
   if (isTRUE(keep_nuisance)) out$nuisance <- nuisance[needed]
-  class(out) <- "marbounds_ate"
+  class(out) <- "jointbounds_ate"
   if (isTRUE(dc$warn) && any(bad)) warning(sprintf(
     "ATE diagnostics flagged %d arm%s. Inspect $diagnostic_summary and $diagnostic_table. Codes: %s",
     sum(bad), if (sum(bad) == 1L) "" else "s",
@@ -214,7 +214,7 @@ ate_diagnostic_control <- function(x = list()) {
 }
 
 #' @export
-print.marbounds_ate <- function(x, ...) {
+print.jointbounds_ate <- function(x, ...) {
   cat("Cross-fitted AIPW estimate under MAR and no unmeasured confounding\n\n")
   print(x$ate, row.names = FALSE)
   cat("\nDiagnostics:", if (isTRUE(x$diagnostic_summary$diagnostic_ok))

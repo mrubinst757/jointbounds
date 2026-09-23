@@ -1,6 +1,6 @@
 \name{l2_bounds}
 \alias{l2_bounds}
-\alias{print.marbounds_l2}
+\alias{print.jointbounds_l2}
 \title{Continuous-outcome global L2 sensitivity bounds}
 \usage{
 l2_bounds(data, Y, A, C, X, delta = c(1, 1),
@@ -12,7 +12,7 @@ l2_bounds(data, Y, A, C, X, delta = c(1, 1),
   control = list(), diagnostic_control = list(), keep_nuisance = FALSE,
   return_true_bounds = FALSE, delta_K = NULL)
 
-\method{print}{marbounds_l2}(x, ...)
+\method{print}{jointbounds_l2}(x, ...)
 }
 \arguments{
   \item{data}{A data frame.}

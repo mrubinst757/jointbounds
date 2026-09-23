@@ -3,7 +3,7 @@ test_that("generate_ate returns the cross-fitted AIPW score", {
   fit <- generate_ate(d, "Y", "A", "C", c("X1", "X2"),
     folds = 2, nuisance_method = "glm", seed = 7,
     diagnostic_control = list(warn = FALSE), keep_nuisance = TRUE)
-  expect_s3_class(fit, "marbounds_ate")
+  expect_s3_class(fit, "jointbounds_ate")
   expect_true(all(is.finite(unlist(fit$ate[c("estimate", "se",
     "conf_low", "conf_high")]))))
   expect_equal(fit$ate$estimate,

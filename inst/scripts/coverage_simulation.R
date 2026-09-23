@@ -36,7 +36,7 @@ dgp <- function(n, seed = NULL) {
 # True theta = E[phi(O; eta)] approximated by large sample
 compute_true_theta <- function(N = 200000, seed = 1) {
   sim <- dgp(N, seed = seed)
-  phi <- marbounds:::influence_functions(
+  phi <- jointbounds:::influence_functions(
     sim$data$Y, sim$data$A, sim$data$C,
     sim$e, sim$pi0, sim$pi1, sim$mu0, sim$mu1
   )
@@ -53,11 +53,11 @@ true_bounds_at_grid <- function(theta, assumption, bound_type, param_grid) {
     delta_0u <- row$delta_0u %||% 1
     delta_1u <- row$delta_1u %||% 1
     if (assumption == "monotonicity_pos") {
-      b <- if (bound_type == "lower") marbounds:::coef_mono_pos_lower_ate(delta_0u)
-      else marbounds:::coef_mono_pos_upper_ate(delta_1u)
+      b <- if (bound_type == "lower") jointbounds:::coef_mono_pos_lower_ate(delta_0u)
+      else jointbounds:::coef_mono_pos_upper_ate(delta_1u)
     } else if (assumption == "bounded_delta") {
-      b <- if (bound_type == "lower") marbounds:::coef_delta_lower_ate(delta_0u, delta_1u)
-      else marbounds:::coef_delta_upper_ate(delta_0u, delta_1u)
+      b <- if (bound_type == "lower") jointbounds:::coef_delta_lower_ate(delta_0u, delta_1u)
+      else jointbounds:::coef_delta_upper_ate(delta_0u, delta_1u)
     } else {
       stop("assumption not implemented for true_bounds_at_grid")
     }
@@ -93,7 +93,7 @@ run_coverage_simulation <- function(n = 800,
     set.seed(seed_repl + r)
     sim <- dgp(n)
     fit <- tryCatch(
-      marbounds::mar_bounds(
+      jointbounds::mar_bounds(
         sim$data, Y = "Y", A = "A", C = "C", X = "X",
         estimand = "ate", assumption = assumption,
         delta_0u = 1, delta_1u = 1,

@@ -1,7 +1,7 @@
 # Issues Addressed from Quality Assessment
 
 **Date:** 2026-03-16
-**Original Assessment:** quality_reports/marbounds_quality_assessment.md
+**Original Assessment:** quality_reports/jointbounds_quality_assessment.md
 
 ## Critical Issues Fixed ✅
 

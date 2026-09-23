@@ -1,3 +1,46 @@
+# jointbounds 0.4.0
+
+## Renamed from marbounds
+
+- The package is now `jointbounds` and supersedes `marbounds`. Function names
+  and arguments are unchanged; replace `library(marbounds)` with
+  `library(jointbounds)`. S3 classes were renamed from `marbounds_*` to
+  `jointbounds_*` (for example `jointbounds_l2_sensitivity_band`), so code that tests
+  `inherits(x, "marbounds_...")` must be updated. Entries below 0.4.0 refer to
+  the package under its former name.
+
+## Continuous-outcome L-infinity models
+
+- `l2_linf_bounds()` gains `model = c("net", "separated")`. The new default
+  `"net"` implements the manuscript's net L-infinity model,
+  `|M_a - 1| <= delta_M_inf` and `|K_a - 1| <= delta_K_inf`; `"separated"`
+  keeps the previous prevalence-capped `delta * pi * delta_R_inf` box.
+- The L-infinity outer radius is now sign-aware,
+  `E|Z| {C^+(X) + C^-(X)} / 2`, where the downward corners respect
+  `M_a >= rho_a` and `K_a >= 0`. It is never wider than the previous symmetric
+  radius.
+- `l2_oracle_sensitivity_parameters()` also returns the minimal net radii
+  `delta_M_inf` and `delta_K_inf`; the oracle L-infinity outer and sharp
+  bounds and `l2_compare_dr_plugin()` follow the requested `model`.
+
+## Bug fixes
+
+- `estimate_nuisance(V = 1)` previously had an empty training set and silently
+  fell back to marginal means. Because `mar_bounds()` uses `V = 1` whenever all
+  libraries are `"SL.glm"`, the default binary analyses were affected. With
+  `V = 1` nuisances are now fitted and predicted on the full sample.
+- `estimate_nuisance(stratify_mu = FALSE)` now includes treatment in the pooled
+  outcome model; previously it forced `mu0 == mu1`.
+- The smooth-approximation (`smooth_approximation = TRUE`) bounded-risk ATE
+  scores used an uncentered and sign-incorrect chain-rule term, which made the
+  bounds diverge as `epsilon` shrank. They now converge to the indicator bounds.
+- `mar_bounds()` grids now honour the `delta` and `tau` shorthands for every
+  ATE and Psi_1 assumption. The bounded-risk grid defaults `tau_1` to `tau_0`,
+  matching the scalar path.
+- `multiplier_bootstrap_grid(assumption = "bounded_risk")` now uses the same
+  masked `min{1 - mu, (tau - 1) mu}` score as `mar_bounds()`, and it no longer
+  resets the global RNG seed.
+
 # marbounds 0.3.0
 
 - Controlled nuisance-error simulations no longer claim or perform

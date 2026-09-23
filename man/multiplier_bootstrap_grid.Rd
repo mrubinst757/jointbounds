@@ -28,7 +28,8 @@ multiplier_bootstrap_grid(
 
 \item{alpha}{Significance level for simultaneous CIs (default 0.05).}
 
-\item{multiplier}{"rademacher" (default) or "gaussian".}
+\item{multiplier}{"rademacher" (default) or "gaussian". Multiplier draws use
+the current RNG state; call \code{set.seed()} beforehand for reproducibility.}
 }
 \value{
 List with \code{grid} (data.frame with columns from param_grid plus \code{estimate}, \code{se}, \code{ci_lower}, \code{ci_upper}, \code{simultaneous_lower}, \code{simultaneous_upper}), \code{boot_replicates} (B x nrow(grid) matrix of bootstrap T* values), and \code{critical_value} (estimated 1-alpha quantile of max over grid of |T*|).

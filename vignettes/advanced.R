@@ -8,7 +8,7 @@ knitr::opts_chunk$set(
 
 
 ## -----------------------------------------------------------------------------
-library(marbounds)
+library(jointbounds)
 suppressPackageStartupMessages(library(SuperLearner))
 
 
@@ -121,7 +121,7 @@ cat("Custom 95% CI for lower bound: [", ci_lower, ",", ci_upper, "]\n")
 ## 
 ## # Compute bounds at different δ values using stored influence functions
 ## # (This is what multiplier_bootstrap_grid does internally)
-## new_bounds <- marbounds:::compute_bounds(
+## new_bounds <- jointbounds:::compute_bounds(
 ##   phi,
 ##   estimand = "ate",
 ##   assumption = "general",

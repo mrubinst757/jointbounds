@@ -13,7 +13,8 @@
 #' @param assumption Same as in \code{mar_bounds}: "bounded_delta", "monotonicity_pos", "monotonicity_neg", "bounded_risk", "point_ate".
 #' @param B Number of multiplier bootstrap replications (default 1000).
 #' @param alpha Significance level for simultaneous CIs (default 0.05).
-#' @param multiplier "rademacher" (default) or "gaussian".
+#' @param multiplier "rademacher" (default) or "gaussian". Multiplier draws use
+#'   the current RNG state; call \code{set.seed()} beforehand for reproducibility.
 #' @return List with \code{grid} (data.frame with columns from param_grid plus \code{estimate}, \code{se}, \code{ci_lower}, \code{ci_upper}, \code{simultaneous_lower}, \code{simultaneous_upper}), \code{boot_replicates} (B x nrow(grid) matrix of bootstrap T* values), and \code{critical_value} (estimated 1-alpha quantile of max over grid of |T*|).
 #' @export
 multiplier_bootstrap_grid <- function(mar_result,
@@ -42,8 +43,8 @@ multiplier_bootstrap_grid <- function(mar_result,
     delta_1u <- row$delta_1u %||% 1
     delta_0l <- row$delta_0l %||% 0
     delta_1l <- row$delta_1l %||% 0
-    tau_0 <- row$tau_0 %||% 2
-    tau_1 <- row$tau_1 %||% 2
+    tau_0 <- row$tau_0 %||% row$tau %||% 2
+    tau_1 <- row$tau_1 %||% row$tau %||% tau_0
     tau <- row$tau %||% 2
     delta_0 <- row$delta_0
     delta_1 <- row$delta_1
@@ -62,24 +63,37 @@ multiplier_bootstrap_grid <- function(mar_result,
       if (bound_spec == "lower") return(coef_delta_lower_ate(delta_0u, delta_1u))
       return(coef_delta_upper_ate(delta_0u, delta_1u))
     }
-    if (assumption == "bounded_risk") {
-      if (bound_spec == "lower") return(coef_bounded_risk_lower_ate(delta_0u, delta_1u, tau_0, tau_1))
-      return(coef_bounded_risk_upper_ate(delta_0u, delta_1u, tau_0, tau_1))
-    }
     coef_point_ate(delta_0 %||% 0.5, delta_1 %||% 0.5, tau)
   }
 
   # Point estimates and IF values (n x n_grid)
   estimates <- numeric(n_grid)
   psi_mat <- matrix(NA, n, n_grid)
+  if (assumption == "bounded_risk") {
+    if (bound_spec == "point") stop("bounded_risk supports bound_spec = 'lower' or 'upper'.")
+    nuis <- mar_result$nuisance
+    if (is.null(nuis$mu0) || is.null(nuis$mu1)) {
+      stop("For bounded_risk, mar_result must contain nuisance$mu0 and nuisance$mu1.")
+    }
+  }
   for (j in seq_len(n_grid)) {
-    b <- get_b(as.list(grid_df[j, , drop = FALSE]))
-    estimates[j] <- mean(phi %*% b)
-    psi_mat[, j] <- drop(phi %*% b) - estimates[j]  # centered IF
+    row <- as.list(grid_df[j, , drop = FALSE])
+    if (assumption == "bounded_risk") {
+      # Same masked min{1 - mu, (tau - 1) mu} score as mar_bounds()
+      tau_0 <- row$tau_0 %||% row$tau %||% 2
+      tau_1 <- row$tau_1 %||% row$tau %||% tau_0
+      score <- bounded_risk_scores(
+        phi, nuis$mu0, nuis$mu1, row$delta_0u %||% 1, row$delta_1u %||% 1,
+        tau_0, tau_1, bound_spec
+      )
+    } else {
+      score <- drop(phi %*% get_b(row))
+    }
+    estimates[j] <- mean(score)
+    psi_mat[, j] <- score - estimates[j]  # centered IF
   }
 
   # Multiplier bootstrap
-  set.seed(42)
   if (multiplier == "rademacher") {
     G_fun <- function() sample(c(-1, 1), n, replace = TRUE)
   } else {

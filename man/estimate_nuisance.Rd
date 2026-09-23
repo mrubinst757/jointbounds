@@ -28,7 +28,8 @@ estimate_nuisance(
 \item{Y}{Outcome (NA or value when C=0); only used when C=0 for outcome models.}
 
 \item{V}{Number of cross-fitting folds (default 2; the calling function may use
-\code{V=1} when a simple single-library SuperLearner such as \code{SL.glm} is used).}
+\code{V=1} when a simple single-library SuperLearner such as \code{SL.glm} is used,
+in which case nuisances are fitted and predicted on the full sample).}
 
 \item{sl_lib_prop}{Character vector of SuperLearner library for propensity e (default "SL.glm").}
 
@@ -36,7 +37,7 @@ estimate_nuisance(
 
 \item{sl_lib_outcome}{Character vector of SuperLearner library for outcome mu_0, mu_1 (default "SL.glm").}
 
-\item{stratify_mu}{Logical; if TRUE (default), estimate separate outcome models mu_0 and mu_1 stratified by treatment A. If FALSE, estimate a single pooled model E(Y|X,C=0) and predict for both A=0 and A=1.}
+\item{stratify_mu}{Logical; if TRUE (default), estimate separate outcome models mu_0 and mu_1 stratified by treatment A. If FALSE, estimate a single pooled model E(Y|X,A,C=0) with A as a covariate and predict at A=0 and A=1.}
 
 \item{family_Y}{Character; family for outcome model ("gaussian" or "binomial"). Default "gaussian".}
 

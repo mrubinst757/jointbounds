@@ -1,7 +1,7 @@
 \name{l2_simulation_study}
 \alias{l2_simulation_study}
-\alias{print.marbounds_l2_simulation}
-\alias{plot.marbounds_l2_simulation}
+\alias{print.jointbounds_l2_simulation}
+\alias{plot.jointbounds_l2_simulation}
 \title{Run and summarize the continuous-outcome simulation study}
 \usage{
 l2_simulation_study(
@@ -13,9 +13,9 @@ l2_simulation_study(
   checkpoint_file = NULL, ...
 )
 
-\method{print}{marbounds_l2_simulation}(x, ...)
+\method{print}{jointbounds_l2_simulation}(x, ...)
 
-\method{plot}{marbounds_l2_simulation}(x,
+\method{plot}{jointbounds_l2_simulation}(x,
   metric = c("coverage", "bias", "width"), ...)
 }
 \arguments{
@@ -35,7 +35,7 @@ l2_simulation_study(
   \item{...}{Additional arguments passed to \code{l2_compare_dr_plugin()}.}
 }
 \value{\code{l2_simulation_study()} returns a
-\code{marbounds_l2_simulation} object with replication results, endpoint and
+\code{jointbounds_l2_simulation} object with replication results, endpoint and
 set-coverage summaries, width and mechanism comparisons, and failure
 diagnostics. The plot method returns a ggplot object.}
 \description{Runs the prespecified paper simulation using minimal oracle

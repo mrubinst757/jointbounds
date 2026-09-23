@@ -10,7 +10,8 @@ l2_oracle_sensitivity_parameters(data, nodes = 200L)
 }
 \value{A list containing the arm-specific minimal \code{delta},
 \code{delta_M}, \code{delta_R}, \code{delta_K} (also returned under the legacy
-name \code{delta_A}), their L-infinity analogues, the covariate-level informative-prevalence
+name \code{delta_A}), their L-infinity analogues (including the net radii
+\code{delta_M_inf} and \code{delta_K_inf}), the covariate-level informative-prevalence
 ratios, the calibration-sample empirical envelope, and a numerical-integration
 note.}
 \description{

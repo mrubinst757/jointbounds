@@ -1,15 +1,18 @@
-Package: marbounds
+Package: jointbounds
 Title: Bounds on Causal Effects with Mixed Informative and Non-Informative Missingness
-Version: 0.3.0
+Version: 0.4.0
 Authors@R: c(
     person("Max", "Rubinstein", email = "mrubinstein@rand.org", role = c("aut", "cre")),
     person("Denis", "Agniel", email = "dagniel@rand.org", role = "aut")
   )
 Description: Implements influence-function-based estimators for bounds on causal effects
-  (ATE, composite ATE, separable direct effect) when outcomes are missing due to an
-  unknown mixture of informative and non-informative missingness. Supports both the
-  original binary-outcome models and continuous-outcome global L2 sensitivity models
-  for informative missingness and unmeasured confounding. Continuous-outcome tools
+  when outcomes may be missing not at random and treatment may be confounded,
+  including joint sensitivity analysis for simultaneous violations of missing at
+  random and no unmeasured confounding. Supersedes the 'marbounds' package, whose
+  binary-outcome bounds for the ATE, composite ATE, and separable direct effect
+  under an unknown mixture of informative and non-informative missingness are
+  retained. Continuous-outcome global L2 and L-infinity sensitivity models
+  for informative missingness and unmeasured confounding are added. Continuous-outcome tools
   include closed-form outer bounds, empirical sharp sieve-dual bounds, reduced-form
   net-missingness bounds, sensitivity grids, tipping frontiers, and simulation.
   Nuisance functions are estimated with cross-fitting. Sharp continuous-outcome

@@ -1,4 +1,4 @@
 library(testthat)
-library(marbounds)
+library(jointbounds)
 
-test_check("marbounds")
+test_check("jointbounds")

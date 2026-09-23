@@ -3,15 +3,15 @@
 \alias{l2_equal_radius}
 \alias{l2_overall_equal_radius}
 \alias{l2_equal_radius_comparison}
-\alias{plot.marbounds_l2_benchmark_frontiers}
-\alias{plot.marbounds_l2_equal_radius_comparison}
+\alias{plot.jointbounds_l2_benchmark_frontiers}
+\alias{plot.jointbounds_l2_equal_radius_comparison}
 \title{Invert sensitivity bounds for multiple calibration benchmarks}
 \usage{
 l2_benchmark_frontiers(
   surface, benchmarks, estimator = c("aipw", "plugin"),
   radius_x = NULL, radius_y = NULL, plot = FALSE
 )
-\method{plot}{marbounds_l2_benchmark_frontiers}(x, facet_pz = TRUE, ...)
+\method{plot}{jointbounds_l2_benchmark_frontiers}(x, facet_pz = TRUE, ...)
 
 l2_equal_radius(x)
 
@@ -24,7 +24,7 @@ l2_equal_radius_comparison(
   conf_level = 0.95, plot = FALSE
 )
 
-\method{plot}{marbounds_l2_equal_radius_comparison}(x, ...)
+\method{plot}{jointbounds_l2_equal_radius_comparison}(x, ...)
 }
 \arguments{
   \item{surface}{A sensitivity-grid object or its results data frame.}

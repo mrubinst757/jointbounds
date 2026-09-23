@@ -100,7 +100,7 @@ l2_multiplier_band <- function(fits, estimator = NULL, B = 1000L,
     scores = score_matrix, suprema = suprema,
     conf_level = conf_level, multiplier = multiplier,
     estimator = estimator, n = n, B = B, call = match.call())
-  class(out) <- "marbounds_l2_multiplier_band"
+  class(out) <- "jointbounds_l2_multiplier_band"
   out
 }
 
@@ -176,6 +176,6 @@ l2_sensitivity_band <- function(data, Y, A, C, X, grid,
   out$outward <- cbind(grid[out$outward$grid_id, , drop = FALSE], out$outward)
   out$bound_method <- bound_method; out$model <- model
   if (isTRUE(keep_fits)) out$fits <- fits
-  class(out) <- c("marbounds_l2_sensitivity_band", class(out))
+  class(out) <- c("jointbounds_l2_sensitivity_band", class(out))
   out
 }

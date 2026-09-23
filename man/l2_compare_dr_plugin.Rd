@@ -51,7 +51,11 @@ the minimal oracle sensitivity
 parameters, and the parameters actually evaluated. It also returns oracle
 L-infinity radii, an L-infinity/L1 Holder outer bound,
 an optional sharp L-infinity empirical-sieve interval, and a width comparison
-with the L2 sharp-sieve interval.}
+with the L2 sharp-sieve interval. The L-infinity intervals are population
+benchmarks computed from the known DGP. The sharp one is a
+\code{linf_max_n}-draw inverse-weighted LP discretization, so it can fall
+slightly outside the outer interval. No DR estimator or inference is provided
+for either L-infinity interval; see \code{l2_linf_bounds()}.}
 \description{
 Runs the continuous-outcome simulator and compares inverse-respondent-weighted
 plug-in evaluation, error-contaminated DR evaluation, and the true EIF without

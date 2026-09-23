@@ -23,7 +23,7 @@ utils::globalVariables(c(".radius_x", "estimate", "simultaneous_low",
 #' @param estimator Return AIPW, plug-in, or both.
 #' @param variance Include paired influence-score standard errors and intervals.
 #' @inheritParams l2_bounds
-#' @return An object of class marbounds_l2_benchmarks with a results data frame,
+#' @return An object of class jointbounds_l2_benchmarks with a results data frame,
 #'   selected subsets, row-level centered influence scores when requested, and
 #'   metadata. The signed benchmark is reduced-Z minus full-X, so it can be
 #'   added directly to a full-X reference estimate during frontier inversion.
@@ -107,7 +107,7 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
     full = full$estimates,
     metadata = list(X = X, max_per_pz = max_per_pz,
       subset_selection = subset_selection, variance = variance), call = match.call())
-  class(out) <- "marbounds_l2_benchmarks"
+  class(out) <- "jointbounds_l2_benchmarks"
   out
 }
 
@@ -156,7 +156,7 @@ l2_benchmark_band <- function(benchmarks, estimator = "aipw", B = 1000L,
                               conf_level = .95,
                               multiplier = c("rademacher", "normal"),
                               seed = 1L) {
-  if (!inherits(benchmarks, "marbounds_l2_benchmarks"))
+  if (!inherits(benchmarks, "jointbounds_l2_benchmarks"))
     stop("benchmarks must be returned by l2_aipw_benchmarks()")
   if (!identical(estimator, "aipw"))
     stop("Influence-function benchmark bands require estimator = 'aipw'")
@@ -189,7 +189,7 @@ l2_benchmark_band <- function(benchmarks, estimator = "aipw", B = 1000L,
   out <- list(results = d, critical_value = critical, suprema = suprema,
     scores = scores, estimator = estimator, conf_level = conf_level,
     multiplier = multiplier, B = B, call = match.call())
-  class(out) <- "marbounds_l2_benchmark_band"
+  class(out) <- "jointbounds_l2_benchmark_band"
   out
 }
 
@@ -231,10 +231,10 @@ l2_calibration_band <- function(surface, benchmarks,
                                 multiplier = c("rademacher", "normal"),
                                 seed = 1L, radius_x = NULL,
                                 radius_y = NULL) {
-  if (!inherits(surface, "marbounds_l2_sensitivity_band") ||
+  if (!inherits(surface, "jointbounds_l2_sensitivity_band") ||
       is.null(surface$fits) || !length(surface$fits))
     stop("surface must come from l2_sensitivity_band(..., keep_fits = TRUE)")
-  if (!inherits(benchmarks, "marbounds_l2_benchmarks"))
+  if (!inherits(benchmarks, "jointbounds_l2_benchmarks"))
     stop("benchmarks must come from l2_aipw_benchmarks()")
   if (!identical(benchmark_estimator, "aipw"))
     stop("Combined influence-function inference requires benchmark_estimator = 'aipw'")
@@ -376,7 +376,7 @@ l2_calibration_band <- function(surface, benchmarks,
     multiplier = multiplier, endpoint_estimator = endpoint_estimator,
     benchmark_estimator = benchmark_estimator, radius_x = radius_x,
     radius_y = radius_y, B = B, call = match.call())
-  class(out) <- "marbounds_l2_calibration_band"
+  class(out) <- "jointbounds_l2_calibration_band"
   out
 }
 
@@ -385,7 +385,7 @@ l2_calibration_band <- function(surface, benchmarks,
 #' @param ... Additional arguments currently ignored.
 #' @return A `ggplot2` object.
 #' @export
-plot.marbounds_l2_calibration_band <- function(x, ...) {
+plot.jointbounds_l2_calibration_band <- function(x, ...) {
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Plotting calibration bands requires the suggested package ggplot2")
   d <- x$frontier
@@ -430,13 +430,13 @@ l2_benchmark_frontiers <- function(surface, benchmarks,
                                    radius_x = NULL, radius_y = NULL,
                                    plot = FALSE) {
   estimator <- match.arg(estimator)
-  surface_data <- if (inherits(surface, "marbounds_l2_grid"))
+  surface_data <- if (inherits(surface, "jointbounds_l2_grid"))
     surface$results else surface
   if (is.null(radius_x)) radius_x <- if ("delta_M" %in% names(surface_data))
     "delta_M" else "delta_R"
   if (is.null(radius_y)) radius_y <- if ("delta_K" %in% names(surface_data))
     "delta_K" else "delta_A"
-  b <- if (inherits(benchmarks, "marbounds_l2_benchmarks"))
+  b <- if (inherits(benchmarks, "jointbounds_l2_benchmarks"))
     benchmarks$results else benchmarks
   b <- b[b$estimator == estimator, , drop = FALSE]
   if (!nrow(b)) stop("No benchmarks found for estimator = ", estimator)
@@ -457,7 +457,7 @@ l2_benchmark_frontiers <- function(surface, benchmarks,
     z
   })
   out <- do.call(rbind, ans); rownames(out) <- NULL
-  class(out) <- c("marbounds_l2_benchmark_frontiers", "data.frame")
+  class(out) <- c("jointbounds_l2_benchmark_frontiers", "data.frame")
   attr(out, "radius_x") <- radius_x; attr(out, "radius_y") <- radius_y
   eq <- l2_equal_radius(out)
   key_out <- interaction(out$benchmark_id, out$method, drop = TRUE)
@@ -481,7 +481,7 @@ l2_benchmark_frontiers <- function(surface, benchmarks,
 #' @return One row per benchmark and bound method, including `equal_radius`.
 #' @export
 l2_equal_radius <- function(x) {
-  if (!inherits(x, "marbounds_l2_benchmark_frontiers"))
+  if (!inherits(x, "jointbounds_l2_benchmark_frontiers"))
     stop("x must be returned by l2_benchmark_frontiers()")
   rx <- attr(x, "radius_x"); ry <- paste0("minimum_", attr(x, "radius_y"))
   groups <- split(x, interaction(x$benchmark_id, x$method, drop = TRUE))
@@ -515,7 +515,7 @@ l2_equal_radius <- function(x) {
 l2_overall_equal_radius <- function(surface, threshold = 0,
                                     radius_x = NULL,
                                     radius_y = NULL) {
-  d <- if (inherits(surface, "marbounds_l2_grid")) surface$results else surface
+  d <- if (inherits(surface, "jointbounds_l2_grid")) surface$results else surface
   if (is.null(radius_x)) radius_x <- if ("delta_M" %in% names(d))
     "delta_M" else "delta_R"
   if (is.null(radius_y)) radius_y <- if ("delta_K" %in% names(d))
@@ -542,7 +542,7 @@ l2_overall_equal_radius <- function(surface, threshold = 0,
 
 l2_grid_equal_radius_value <- function(surface, threshold, method,
                                        radius_x, radius_y, shift = 0) {
-  d <- if (inherits(surface, "marbounds_l2_grid")) surface$results else surface
+  d <- if (inherits(surface, "jointbounds_l2_grid")) surface$results else surface
   d <- d[d$method == method, , drop = FALSE]
   ok <- is.finite(d$lower) & is.finite(d$upper) &
     is.finite(d[[radius_x]]) & is.finite(d[[radius_y]]) &
@@ -637,13 +637,13 @@ l2_equal_radius_comparison <- function(surface, frontiers, threshold = 0,
     paste("Benchmark intervals transform paired AIPW Wald intervals;",
       "overall intervals are Wald location-shift approximations holding",
       "the estimated sensitivity-width surface fixed.") else "Point estimates"
-  class(out) <- c("marbounds_l2_equal_radius_comparison", "data.frame")
+  class(out) <- c("jointbounds_l2_equal_radius_comparison", "data.frame")
   if (isTRUE(plot)) print(graphics::plot(out))
   out
 }
 
 #' @export
-plot.marbounds_l2_equal_radius_comparison <- function(x, ...) {
+plot.jointbounds_l2_equal_radius_comparison <- function(x, ...) {
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Plotting equal-radius comparisons requires the suggested package ggplot2")
   d <- x[is.finite(x$equal_radius), , drop = FALSE]
@@ -696,8 +696,15 @@ plot.marbounds_l2_equal_radius_comparison <- function(x, ...) {
   p
 }
 
+# Axis label for a radius column name, e.g. "delta_M" -> delta[M]
+radius_label <- function(name) {
+  sub_name <- sub("^delta_", "", name)
+  if (identical(sub_name, name)) return(name)
+  bquote(delta[.(sub_name)])
+}
+
 #' @export
-plot.marbounds_l2_benchmark_frontiers <- function(x, facet_pz = TRUE, ...) {
+plot.jointbounds_l2_benchmark_frontiers <- function(x, facet_pz = TRUE, ...) {
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Plotting benchmark frontiers requires the suggested package ggplot2")
   rx <- attr(x, "radius_x"); ry <- paste0("minimum_", attr(x, "radius_y"))
@@ -719,7 +726,8 @@ plot.marbounds_l2_benchmark_frontiers <- function(x, facet_pz = TRUE, ...) {
       inherit.aes = FALSE, shape = 21, fill = "white", stroke = 1.1,
       size = 3.1) +
     ggplot2::scale_colour_viridis_d(option = "D", end = .85) +
-    ggplot2::labs(x = expression(delta[R]), y = expression(delta[A]),
+    ggplot2::labs(x = radius_label(attr(x, "radius_x")),
+      y = radius_label(attr(x, "radius_y")),
       colour = "Retained adjustment set", linetype = "Bound method",
       title = "Joint calibration frontiers",
       subtitle = "Dots mark the smallest equal MAR and NUC sensitivity radius") +

@@ -98,7 +98,7 @@ test_that("sensitivity grids and tipping frontiers work", {
   expect_equal(nrow(out$results), nrow(grid))
   front <- l2_tipping_frontier(out)
   expect_true(all(c("delta_R", "delta_A", "lower") %in% names(front)))
-  expect_s3_class(front, "marbounds_l2_frontier")
+  expect_s3_class(front, "jointbounds_l2_frontier")
 })
 
 test_that("sharp sensitivity grids report diagnostics for every radius pair", {
@@ -356,16 +356,49 @@ test_that("bounded and linear links give finite and infinite Linf radii", {
   expect_true(bi$finite && all(is.finite(bi$ate)))
 })
 
-test_that("sharp Linf LP respects the outer interval", {
+test_that("oracle Linf bounds support the net and separated boxes", {
   skip_if_not_installed("lpSolve")
   d <- simulate_l2_data(250, seed = 37, violation = "both",
                         density_ratio_link = "bounded")
   p <- l2_oracle_sensitivity_parameters(d, nodes = 40)
-  outer <- l2_oracle_linf_outer_bounds(d, p, nodes = 40)
-  sharp <- l2_oracle_linf_sharp_bounds(d, p, max_n = 250)
-  expect_true(sharp$finite)
-  expect_gte(sharp$ate[["lower"]], outer$ate[["lower"]] - 1e-7)
-  expect_lte(sharp$ate[["upper"]], outer$ate[["upper"]] + 1e-7)
+  expect_true(all(is.finite(p$delta_M_inf)) && all(p$delta_M_inf > 0))
+  for (m in c("net", "separated")) {
+    outer <- l2_oracle_linf_outer_bounds(d, p, nodes = 40, model = m)
+    sharp <- l2_oracle_linf_sharp_bounds(d, p, max_n = 250, model = m)
+    expect_true(outer$finite && sharp$finite)
+    expect_lt(outer$ate[["lower"]], outer$ate[["upper"]])
+    expect_lt(sharp$ate[["lower"]], sharp$ate[["upper"]])
+  }
+})
+
+test_that("net Linf box uses the paper's sign-aware corners", {
+  pi <- c(.1, .3, .6); q <- c(.2, .5, .7)
+  box <- l2_linf_box("net", pi, 1, .4, 0, 1.5, q)
+  expect_equal(box$m_lower, pmax(1 - pi, 1 - .4))
+  expect_equal(box$m_upper, rep(1.4, 3))
+  expect_equal(box$k_lower, 0); expect_equal(box$k_upper, 2.5)
+  dm <- pmin(.4, pi)
+  expect_equal(box$c_plus, .4 + q * 1.5 * 1.4)
+  expect_equal(box$c_minus, dm + q * 1 * (1 - dm))
+  ## The sign-aware radius never exceeds the one-sided C+ radius.
+  expect_true(all((box$c_plus + box$c_minus) / 2 <= box$c_plus))
+  sep <- l2_linf_box("separated", pi, .5, 0, 2, .2, q)
+  expect_equal(sep$m_lower, 1 - .5 * pi)
+  expect_equal(sep$m_upper, 1 + .5 * pi * 2)
+})
+
+test_that("zero Linf radii collapse both Linf intervals to the reference", {
+  skip_if_not_installed("lpSolve")
+  d <- simulate_l2_data(200, seed = 385, violation = "both",
+                        density_ratio_link = "bounded")
+  fit <- l2_linf_bounds(d, "Y", "A", "C", c("X1", "X2"),
+    delta_M_inf = 0, delta_K_inf = 0, method = "both", folds = 2,
+    nuisance_method = "glm", max_n = 200)
+  expect_equal(fit$parameters$model, "net")
+  expect_equal(fit$arm$lower[fit$arm$method == "linf_outer"],
+               fit$arm$upper[fit$arm$method == "linf_outer"])
+  sharp <- fit$arm[fit$arm$method == "linf_sharp_sieve", ]
+  expect_equal(sharp$lower, sharp$upper, tolerance = 1e-6)
 })
 
 test_that("CS crossfit returns plug-in, EIF, and oracle-EIF endpoints", {
@@ -426,9 +459,14 @@ test_that("L-infinity sharp lower envelope respects nonnegative R", {
   d <- simulate_l2_data(180, seed = 382, violation = "both",
                         density_ratio_link = "bounded")
   fit <- l2_linf_bounds(d, "Y", "A", "C", c("X1", "X2"),
-    delta = .5, delta_R_inf = 2, delta_A_inf = .2,
+    delta = .5, delta_R_inf = 2, delta_A_inf = .2, model = "separated",
     method = "sharp", folds = 2, nuisance_method = "glm", max_n = 100)
   expect_true(all(vapply(fit$diagnostics,
+    function(z) isTRUE(z$mixture_envelope_respected), logical(1))))
+  net <- l2_linf_bounds(d, "Y", "A", "C", c("X1", "X2"),
+    delta_M_inf = 2, delta_K_inf = .2,
+    method = "sharp", folds = 2, nuisance_method = "glm", max_n = 100)
+  expect_true(all(vapply(net$diagnostics,
     function(z) isTRUE(z$mixture_envelope_respected), logical(1))))
 })
 
@@ -482,7 +520,7 @@ test_that("calibration frontier bands combine endpoint and benchmark scores", {
                     eif_upper = -base_score * (1 + width)))
   })
   surface <- structure(list(fits = fits, grid = grid, bound_method = "cs"),
-    class = c("marbounds_l2_sensitivity_band", "list"))
+    class = c("jointbounds_l2_sensitivity_band", "list"))
   target_score <- rep(c(-.4, .4), length.out = n)
   benchmarks <- structure(list(
     results = data.frame(benchmark_id = 1L, label = "omit X1",
@@ -490,7 +528,7 @@ test_that("calibration frontier bands combine endpoint and benchmark scores", {
     target_scores = list(`1_aipw` = target_score),
     scores = list(`1_aipw` = target_score - base_score),
     full_scores = list(aipw = base_score)),
-    class = "marbounds_l2_benchmarks")
+    class = "jointbounds_l2_benchmarks")
   out <- l2_calibration_band(surface, benchmarks, B = 29L,
     conf_level = .9, seed = 3L)
   expect_equal(nrow(out$frontier), 2L)
@@ -537,7 +575,7 @@ test_that("multi-benchmark frontiers retain benchmark labels", {
   b <- data.frame(benchmark_id = 1:2, label = c("Z1", "Z2"), p_z = c(1, 2),
                   estimator = "aipw", delta_bench = c(.1, -.1))
   f <- l2_benchmark_frontiers(grid, b)
-  expect_s3_class(f, "marbounds_l2_benchmark_frontiers")
+  expect_s3_class(f, "jointbounds_l2_benchmark_frontiers")
   expect_equal(sort(unique(f$label)), c("Z1", "Z2"))
   expect_true(any(f$compatible_on_grid))
   eq <- l2_equal_radius(f)

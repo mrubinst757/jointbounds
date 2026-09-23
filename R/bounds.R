@@ -51,6 +51,24 @@ coef_bounded_risk_upper_ate <- function(delta_0u, delta_1u, tau_0, tau_1) {
   c(-1, 1, 0, 0, -delta_0u * (1/tau_0 - 1), delta_1u * (tau_1 - 1))
 }
 
+# Uncentered scores for the masked bounded_risk ATE bounds, which use
+# min{1 - mu_a, (tau_a - 1) mu_a}; shared by mar_bounds(), its grid bands, and
+# multiplier_bootstrap_grid().
+bounded_risk_scores <- function(phi, mu0, mu1, delta_0u, delta_1u, tau_0, tau_1,
+                                bound = c("lower", "upper")) {
+  bound <- match.arg(bound)
+  if (bound == "upper") {
+    mask1 <- (tau_1 * mu1 > 1)
+    return((phi[, 2] - phi[, 1]) +
+      delta_1u * ((phi[, 4] - phi[, 6]) * mask1 + (tau_1 - 1) * phi[, 6] * (!mask1)) -
+      delta_0u * ((tau_0^{-1} - 1) * phi[, 5]))
+  }
+  mask0 <- (tau_0 * mu0 > 1)
+  (phi[, 2] - phi[, 1]) +
+    delta_1u * ((tau_1^{-1} - 1) * phi[, 6]) -
+    delta_0u * ((phi[, 3] - phi[, 5]) * mask0 + (tau_0 - 1) * phi[, 5] * (!mask0))
+}
+
 coef_point_ate <- function(delta_0, delta_1, tau) {
   # Psi_0 = Psi_tilde + (tau-1)[ delta_1*m3_1 - delta_0*m3_0 ]
   c(-1, 1, 0, 0, -((tau - 1) * delta_0), (tau - 1) * delta_1)
@@ -178,9 +196,7 @@ compute_bounds <- function(phi,
 
         # φ_ε(x) = (1/ε)φ(x/ε) where φ is standard normal PDF
         phi_density_tau1_mu1 <- stats::dnorm((tau_1 * mu1 - 1) / epsilon) / epsilon
-        phi_density_1_tau1_mu1 <- stats::dnorm((1 - tau_1 * mu1) / epsilon) / epsilon
         phi_density_tau0_mu0 <- stats::dnorm((tau_0 * mu0 - 1) / epsilon) / epsilon
-        phi_density_1_tau0_mu0 <- stats::dnorm((1 - tau_0 * mu0) / epsilon) / epsilon
 
         # Upper bound: uses min{1-mu_1, mu_1*(tau_1-1)} for a=1
         # Base smooth formula
@@ -188,11 +204,12 @@ compute_bounds <- function(phi,
           delta_1u * ((phi2_1 - phi3_1) * phi_eps_tau1_mu1 + (tau_1 - 1) * phi3_1 * (1 - phi_eps_tau1_mu1)) -
           delta_0u * ((tau_0^{-1} - 1) * phi3_0)
 
-        # Additional correction term for a=1
-        correction_upper <- delta_1u * tau_1 * phi1_1 * (
-          pi1 * (1 - mu1) * phi_density_tau1_mu1 +
-          (tau_1 - 1) * pi1 * mu1 * phi_density_1_tau1_mu1
-        )
+        # Chain-rule term for the smoothed weights: with
+        # g(mu) = (1-mu)Phi_eps(tau*mu-1) + (tau-1)mu Phi_eps(1-tau*mu),
+        # the weight derivatives collapse to tau*phi_eps(tau*mu-1)*(1-tau*mu)
+        # (phi_eps is symmetric), multiplying the centered residual phi1 - mu.
+        correction_upper <- delta_1u * tau_1 * pi1 * (phi1_1 - mu1) *
+          (1 - tau_1 * mu1) * phi_density_tau1_mu1
         ub_vec <- ub_vec + correction_upper
 
         # Lower bound: uses min{1-mu_0, mu_0*(tau_0-1)} for a=0
@@ -202,10 +219,8 @@ compute_bounds <- function(phi,
           delta_0u * ((phi2_0 - phi3_0) * phi_eps_tau0_mu0 + (tau_0 - 1) * phi3_0 * (1 - phi_eps_tau0_mu0))
 
         # Additional correction term for a=0
-        correction_lower <- delta_0u * tau_0 * phi1_0 * (
-          pi0 * (1 - mu0) * phi_density_tau0_mu0 +
-          (tau_0 - 1) * pi0 * mu0 * phi_density_1_tau0_mu0
-        )
+        correction_lower <- delta_0u * tau_0 * pi0 * (phi1_0 - mu0) *
+          (1 - tau_0 * mu0) * phi_density_tau0_mu0
         lb_vec <- lb_vec - correction_lower  # Note: subtract for lower bound
 
         lower <- mean(lb_vec)
@@ -215,16 +230,8 @@ compute_bounds <- function(phi,
         return(list(naive = th[2] - th[1], lower = lower, upper = upper, se_lower = se_lower, se_upper = se_upper))
       } else {
         # Indicator function method (default)
-        mask1 <- (tau_1 * mu1 > 1)
-        mask0 <- (tau_0 * mu0 > 1)
-
-        ub_vec <- (phi1_1 - phi1_0) +
-          delta_1u * ( (phi2_1 - phi3_1) * mask1 + (tau_1 - 1) * phi3_1 * (!mask1) ) -
-          delta_0u * ( (tau_0^{-1} - 1) * phi3_0 )
-
-        lb_vec <- (phi1_1 - phi1_0) +
-          delta_1u * ( (tau_1^{-1} - 1) * phi3_1 ) -
-          delta_0u * ( (phi2_0 - phi3_0) * mask0 + (tau_0 - 1) * phi3_0 * (!mask0) )
+        ub_vec <- bounded_risk_scores(phi, mu0, mu1, delta_0u, delta_1u, tau_0, tau_1, "upper")
+        lb_vec <- bounded_risk_scores(phi, mu0, mu1, delta_0u, delta_1u, tau_0, tau_1, "lower")
 
         lower <- mean(lb_vec)
         upper <- mean(ub_vec)

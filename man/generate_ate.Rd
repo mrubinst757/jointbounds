@@ -1,6 +1,6 @@
 \name{generate_ate}
 \alias{generate_ate}
-\alias{print.marbounds_ate}
+\alias{print.jointbounds_ate}
 \title{Cross-fitted doubly robust ATE under MAR and no unmeasured confounding}
 \usage{
 generate_ate(
@@ -13,7 +13,7 @@ generate_ate(
   keep_nuisance = FALSE
 )
 
-\method{print}{marbounds_ate}(x, ...)
+\method{print}{jointbounds_ate}(x, ...)
 }
 \arguments{
   \item{data}{A data frame.}
@@ -36,7 +36,7 @@ generate_ate(
   \item{x}{An object returned by \code{generate_ate()}.}
   \item{...}{Unused.}
 }
-\value{An object of class \code{marbounds_ate} containing the ATE and
+\value{An object of class \code{jointbounds_ate} containing the ATE and
 arm-specific AIPW estimates, standard errors, Wald intervals, centered
 influence scores, and positivity diagnostics.}
 \description{

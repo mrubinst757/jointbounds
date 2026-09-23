@@ -9,11 +9,11 @@ knitr::opts_chunk$set(
 
 ## ---- eval = FALSE------------------------------------------------------------
 ## # Install from source
-## install.packages("path/to/marbounds", repos = NULL, type = "source")
+## install.packages("path/to/jointbounds", repos = NULL, type = "source")
 
 
 ## -----------------------------------------------------------------------------
-library(marbounds)
+library(jointbounds)
 suppressPackageStartupMessages(library(SuperLearner))
 
 

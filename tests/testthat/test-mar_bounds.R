@@ -110,7 +110,7 @@ test_that("mar_bounds bounded_risk_unbounded_tau matches original coefficient bo
                          V = 2, sl_lib = "SL.glm", seed = 1)
   skip_if(is.null(fit), "SuperLearner failed with small sample edge case")
 
-  expected <- marbounds:::compute_bounds(fit$phi, estimand = "ate", assumption = "bounded_risk_unbounded_tau",
+  expected <- jointbounds:::compute_bounds(fit$phi, estimand = "ate", assumption = "bounded_risk_unbounded_tau",
                                          delta_0u = 0.3, delta_1u = 0.3, tau_0 = 2, tau_1 = 2)
   expect_equal(fit$result$lower, expected$lower)
   expect_equal(fit$result$upper, expected$upper)

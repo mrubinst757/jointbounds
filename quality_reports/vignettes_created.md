@@ -1,11 +1,11 @@
-# Vignettes Created for marbounds Package
+# Vignettes Created for jointbounds Package
 
 **Date:** 2026-03-16
 **Status:** ✅ Complete
 
 ## Vignettes Created
 
-### 1. Introduction to marbounds (`vignettes/introduction.Rmd`)
+### 1. Introduction to jointbounds (`vignettes/introduction.Rmd`)
 
 **Content:**
 - Overview of package features
@@ -103,12 +103,12 @@ devtools::build(vignettes = TRUE)
 ### After Installation
 ```r
 # View vignettes
-browseVignettes("marbounds")
+browseVignettes("jointbounds")
 
 # Open specific vignette
-vignette("introduction", package = "marbounds")
-vignette("sensitivity-analysis", package = "marbounds")
-vignette("advanced", package = "marbounds")
+vignette("introduction", package = "jointbounds")
+vignette("sensitivity-analysis", package = "jointbounds")
+vignette("advanced", package = "jointbounds")
 ```
 
 ## Quality Assessment Impact
