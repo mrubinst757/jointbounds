@@ -1,4 +1,47 @@
+# jointbounds 0.4.1
+
+- CS residual-moment estimation now defaults to rotating three-stage splitting,
+  as recommended in the paper. `moment_strategy = "shared_training"` reproduces
+  earlier learned-nuisance fits and requires additional stability assumptions.
+  Controlled oracle-error simulations are unchanged.
+- Estimated propensity clipping is configurable in both cross-fitted estimators.
+
+## Paper functionality audit
+
+- Added direct convex net-model frontier optimization (`l2_frontier_direct`, optional CVXR).
+- Added fixed-target tipping confidence bands (`l2_tipping_band`).
+- Calibration confidence inversion now defaults to the evaluated grid; optional interpolation is descriptive. Returned compatibility tables expose inner and outer sets.
+- Tipping extraction now checks both endpoints by default, correcting negative-effect tipping.
+- Cross-fitted estimators return joint endpoint covariance matrices; CS fits expose moment regularity diagnostics.
+- Updated THEORY_AUDIT.md with the paper-to-function map and inference limitations.
+
 # jointbounds 0.4.0
+
+## Toward-zero calibration
+
+- `l2_calibrated_grid()` selects point-calibrated or upper-confidence-limit
+  radii for subsequent bound estimation, with pointwise or simultaneous limits.
+  It uses evaluated grid points and rejects unavailable crossings. This is
+  conservative calibration, not automatic inference for data-selected bounds.
+
+- `l2_calibration_band()` now exposes `simultaneous_scope`: the existing
+  `"all_benchmarks"` default covers every omitted set jointly, while
+  `"per_benchmark"` computes separate full-grid critical values for each set.
+
+- Calibration frontier functions now default to `calibration = "toward_zero"`:
+  `full - sign(full) * alpha * abs(reduced - full)`, with `alpha = 1`.
+  Use `calibration = "signed"` to recover the previous omission direction.
+  Explicit targets passed to `l2_calibration_frontier(type = "target")`
+  are unchanged. Raw benchmark estimates remain signed discrepancies.
+- Frontier bands transform the paired full-X and reduced-Z influence scores
+  using the same target and check both endpoint inequalities by default.
+  Pointwise frontier intervals adjust for both inequalities and all searched vertical radii; multiplier bands retain their
+  joint dependence. Missing crossings remain missing rather than being
+  replaced by the opposite confidence edge.
+  Exact zero references or discrepancies are rejected for toward-zero EIF
+  inference; ordinary normal approximations do not cover these boundaries.
+- Sharp zero-budget DR endpoints now use the reference AIPW score directly,
+  so separate pseudo-outcome regressions cannot split a collapsed interval.
 
 ## Renamed from marbounds
 
@@ -176,3 +219,9 @@ Initial release of the marbounds package for bounding causal effects under mixed
 Rubinstein, M., Agniel, D., Han, L., Horvitz-Lennon, M., & Normand, S.-L. (2026).
 Bounding causal effects with an unknown mixture of informative and non-informative missingness.
 Journal of Causal Inference (Accepted). https://arxiv.org/pdf/2411.16902
+
+- Added `propensity_clip` to the sharp and CS cross-fitted estimators. The
+  threshold applies consistently in nuisance training/evaluation, dual fitting,
+  and score construction; it is forwarded through sensitivity-band and
+  simulation wrappers. Defaults preserve existing behavior; the paper's
+  clipped simulation comparison uses 0.01. Oracle references remain unchanged.

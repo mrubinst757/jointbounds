@@ -267,11 +267,18 @@ bench <- l2_aipw_benchmarks(
 )
 benchmark_band <- l2_benchmark_band(bench, B = 1000)
 calibration_band <- l2_calibration_band(
-  surface_band, bench, B = 1000
+  surface_band, bench, calibration = "toward_zero", alpha = 1, B = 1000
 )
 plot(calibration_band)
+signed_band <- l2_calibration_band(
+  surface_band, bench, calibration = "signed", alpha = 2, B = 1000
+)
 frontiers <- l2_benchmark_frontiers(
-  surface, bench, estimator = "aipw", plot = TRUE
+  surface, bench, estimator = "aipw", calibration = "toward_zero",
+  alpha = 1, plot = TRUE
+)
+signed_frontiers <- l2_benchmark_frontiers(
+  surface, bench, estimator = "aipw", calibration = "signed", alpha = 2
 )
 l2_equal_radius(frontiers)
 
@@ -283,8 +290,43 @@ comparison <- l2_equal_radius_comparison(
 
 The optional AIPW variance uses the paired reduced-minus-full influence score.
 The curves give joint \eqn{(\delta_M,\delta_K)} budgets, with each radius equal
-across treatment arms, sufficient to reproduce each signed benchmark. They do
+across treatment arms, at which the chosen interval contains the target. They do
 not identify a MAR-versus-NUC decomposition.
+
+Both `l2_calibration_frontier()` and the benchmark/frontier-band wrappers
+support the same two targets, writing `full = psi_X`, `reduced = psi_Z`:
+
+- `calibration = "toward_zero"` (default):
+  `full - sign(full) * alpha * abs(reduced - full)`.
+- `calibration = "signed"`: `full + alpha * (reduced - full)`.
+
+`alpha` must be positive. At `alpha = 1`, the signed target is exactly the
+reduced-covariate estimate. Both modes transform the paired influence scores
+using the same target formula. Only toward-zero inference excludes exact zero
+references or discrepancies. Explicit `type = "target"` values are unchanged.
+For coherent calibration, use the surface's zero-budget estimate and score
+as the full-X benchmark. The default band inversion checks both endpoints.
+
+The `pointwise_*` frontier limits are pointwise in the horizontal radius:
+they use Bonferroni-adjusted Wald bands over both endpoints and every searched
+vertical radius. `simultaneous_*` limits use a common multiplier critical
+value across all grid points and supplied benchmarks by default. Set
+`simultaneous_scope = "all_benchmarks"` for this joint coverage across omitted
+sets, or `simultaneous_scope = "per_benchmark"` for separate coverage of each
+benchmark's full frontier. For example:
+
+```r
+joint <- l2_calibration_band(surface_band, bench,
+                            simultaneous_scope = "all_benchmarks")
+separate <- l2_calibration_band(surface_band, bench,
+                               simultaneous_scope = "per_benchmark")
+```
+
+The latter does not ensure that all benchmark frontiers are covered together.
+Neither option changes the point estimates or pointwise frontier intervals.
+An `NA` edge means no
+crossing was found within the grid. Linear interpolation is a plotting
+approximation; grid coverage alone does not guarantee off-grid coverage.
 The equal-radius summary is the smallest common value \eqn{x} for which
 \eqn{(\delta_M,\delta_K)=(x,x)} can reproduce a benchmark on the evaluated
 grid; it is an E-value-like robustness summary on the model's L2 scale.
@@ -297,6 +339,31 @@ intervals for the benchmark discrepancies. The red band is a Wald
 location-shift approximation for the overall tipping value that holds the
 estimated sensitivity-width surface fixed; joint bootstrap surfaces are needed
 for fully simultaneous inference.
+
+To compute bounds using conservative joint calibration, select upper
+confidence limits for the frontier radii:
+
+```r
+calibration <- l2_calibration_band(surface_band, bench,
+  calibration = "toward_zero", alpha = 1,
+  simultaneous_scope = "all_benchmarks")
+calibrated_grid <- l2_calibrated_grid(calibration,
+  selection = "simultaneous_upper", radius_x = 0, benchmark_id = 1)
+calibrated_bounds <- l2_sensitivity_band(
+  dat_cont, "Y", "A", "C", c("X1", "X2"),
+  grid = calibrated_grid, model = "net", bound_method = "cs")
+```
+
+Use the same model and bound method as in the calibration surface. Replace
+`radius_x = 0` with an evaluated missingness radius, or omit it for all radii.
+`selection = "pointwise_upper"` is appropriate for a prespecified horizontal
+radius; `"estimate"` selects the point-calibrated grid. Simultaneous limits
+permit selection across evaluated horizontal radii; selection across omitted
+sets additionally requires `simultaneous_scope = "all_benchmarks"`.
+The helper selects evaluated grid points rather than interpolated radii and
+stops if a requested crossing is unavailable. This accounts for calibration
+uncertainty only: the returned bound estimator's ordinary fixed-grid intervals
+do not automatically give valid inference after choosing radii from the data.
 
 Separate observed-data calibrations of informative missingness and unmeasured
 confounding are not jointly identified. `l2_calibrate()` requires
@@ -324,3 +391,42 @@ sharp endpoint.
 Run `citation("jointbounds")` for citation details.
 
 Note: by default, the bounded_risk option uses the method that assumes $\mu_a^\star/\mu_a \le \min(1/\mu_a, \tau_a)$, outlined in detail the Appendix. The option in the main paper may be recovered using the ``bounded_risk_unbounded_tau'' option.
+
+### Frontier inference and direct optimization
+
+`l2_calibration_band()` defaults to finite-grid inversion and returns the
+`compatibility` table of estimated, inner, and outer sets. Use
+`simultaneous_scope = "all_benchmarks"` for coverage across retained covariate
+sets. `interpolate = TRUE` is an optional descriptive interpolation, not a
+between-grid confidence guarantee. Both signed and toward-zero alpha-calibration
+remain available through the `calibration` and `alpha` arguments.
+
+For a fixed target rather than an estimated benchmark, use
+`l2_tipping_band(surface, threshold = 0)` with a surface produced by
+`l2_sensitivity_band(..., keep_fits = TRUE)`. Descriptive
+`l2_tipping_frontier()` now uses both endpoints by default, including for
+negative estimated effects.
+
+For the paper's optional grid-free convex computation, use
+`l2_frontier_direct(data, Y, A, C, X, delta_M = .1, target = 0,
+ nuisance_method = "glm")`. This requires CVXR and returns the smallest common
+confounding radius, arm tilts, solver status, and feasibility residuals. It is a
+plug-in empirical sieve calculation without a confidence interval.
+
+Cross-fitted CS and sharp results return `influence_covariance` and
+`estimate_covariance`, each indexed by estimator (for example, `$eif`). CS
+`moment_diagnostics` flags nonpositive required estimated moments and truncation;
+ordinary smooth inference is not justified at these boundaries. See
+[THEORY_AUDIT.md](THEORY_AUDIT.md) for the complete functionality map and limits.
+Set `interpolate = TRUE` in `l2_calibration_band()` or `l2_tipping_band()` to interpolate crossings. This emits a warning that coverage between evaluated grid points is not guaranteed; the default remains `FALSE`.
+
+## CS sample splitting
+
+`l2_cs_crossfit()` now uses rotating three-stage splitting by default: fit
+structural nuisances on the training folds, regress residual powers on a
+separate fold, and evaluate scores on the held-out fold. This follows the
+paper's recommended construction. The nuisance rates and moment assumptions
+remain necessary. Use `moment_strategy = "shared_training"` to reproduce
+learned-nuisance results from version 0.4.0; that approach needs additional
+stability assumptions because the residuals are constructed in sample.
+Controlled `nuisance_source = "oracle_error"` simulations are unchanged.

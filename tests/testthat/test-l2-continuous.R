@@ -532,11 +532,11 @@ test_that("calibration frontier bands combine endpoint and benchmark scores", {
   out <- l2_calibration_band(surface, benchmarks, B = 29L,
     conf_level = .9, seed = 3L)
   expect_equal(nrow(out$frontier), 2L)
-  expect_equal(out$frontier$endpoint, rep("lower", 2L))
+  expect_equal(out$frontier$endpoint, rep("both", 2L))
   expect_true(all(is.finite(out$frontier$estimate)))
   expect_true(is.finite(out$critical_value) && out$critical_value > 0)
   expect_equal(nrow(out$scores), n)
-  expect_equal(ncol(out$scores), nrow(grid))
+  expect_equal(ncol(out$scores), 2L * nrow(grid))
   expect_true(all(c("pointwise_low", "pointwise_high",
     "simultaneous_low", "simultaneous_high") %in%
     names(out$frontier)))
@@ -580,8 +580,10 @@ test_that("multi-benchmark frontiers retain benchmark labels", {
   expect_true(any(f$compatible_on_grid))
   eq <- l2_equal_radius(f)
   expect_equal(nrow(eq), 2L)
-  expect_equal(eq$equal_radius, c(.2, .2))
-  expect_equal(unique(f$equal_radius), .2)
+  expect_equal(eq$equal_radius, c(0, 0))
+  expect_equal(unique(f$equal_radius), 0)
+  signed <- l2_benchmark_frontiers(grid, b, calibration = "signed")
+  expect_equal(l2_equal_radius(signed)$equal_radius, c(.2, .2))
   if (requireNamespace("ggplot2", quietly = TRUE))
     expect_s3_class(plot(f), "ggplot")
 })
@@ -597,7 +599,9 @@ test_that("benchmark inversion uses its paired full-X reference", {
     delta_bench = .1)
   f <- l2_benchmark_frontiers(grid, b)
   expect_equal(unique(f$reference), .6)
-  expect_equal(unique(f$target), .7)
+  expect_equal(unique(f$target), .5)
+  signed <- l2_benchmark_frontiers(grid, b, calibration = "signed")
+  expect_equal(unique(signed$target), .7)
 })
 
 test_that("sensitivity grid forwards nuisance estimation options", {

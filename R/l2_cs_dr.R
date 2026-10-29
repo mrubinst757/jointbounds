@@ -5,9 +5,21 @@
 #' regression, and conditional residual-moment nuisances are directly
 #' perturbed. No regressions or cross-fitting are used in that simulation mode.
 #'
+#' @param moment_strategy Use `"three_way"` (default) to fit structural
+#'   nuisances, residual-moment regressions, and evaluation scores on disjoint
+#'   folds. At least three folds are used. `"shared_training"` reproduces the
+#'   previous two-stage implementation; reusing the structural training sample
+#'   for residual regressions requires additional stability assumptions.
+#'   Ignored for directly constructed oracle-error nuisances.
 #' @return Arm and ATE CS endpoints with plug-in and EIF standard errors. For
 #'   data returned by `simulate_l2_data()`, an additional `true_eif` diagnostic
 #'   evaluates the EIF one-step estimator using the known nuisance functions.
+#' @details `influence_covariance` and `estimate_covariance` contain the joint
+#'   lower/upper covariance matrices, by estimator; the latter divides by n.
+#'   `moment_diagnostics` flags nonpositive estimated moments required by the
+#'   sufficient regularity conditions and any truncation to zero. Such flags
+#'   mean ordinary EIF intervals are not justified by the smooth expansion.
+#'   Positive estimates alone do not establish population regularity.
 #' @export
 l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            delta_R = c(.2, .2), delta_A = c(.2, .2),
@@ -23,7 +35,10 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            nuisance_error_scale = 1,
                            nuisance_error_sign = c(e = 1, rho = -1,
                                                    regression = 1),
-                           delta_K = NULL) {
+                           delta_K = NULL, propensity_clip = 1e-4,
+                           moment_strategy = c("three_way", "shared_training")) {
+  l2_validate_propensity_clip(propensity_clip)
+  moment_strategy <- match.arg(moment_strategy)
   nuisance_method <- match.arg(nuisance_method)
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
@@ -39,8 +54,12 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   n <- nrow(data)
   controlled_error <- nuisance_source == "oracle_error"
   requested_folds <- as.integer(folds)
+  minimum_folds <- if (moment_strategy == "three_way") 3L else 2L
+  if (!controlled_error && (length(requested_folds) != 1L ||
+      is.na(requested_folds) || requested_folds < 1L || n < minimum_folds))
+    stop("Estimated nuisances require a valid fold count and enough observations")
   folds <- if (controlled_error) 1L else
-    max(2L, min(requested_folds, n))
+    max(minimum_folds, min(requested_folds, n))
   set.seed(seed)
   fold_id <- if (controlled_error) rep(1L, n) else
     sample(rep(seq_len(folds), length.out = n))
@@ -51,6 +70,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   estimators <- c("plugin", "eif", if (has_oracle) "true_eif")
   arm_rows <- vector("list", 4L * length(estimators))
   arm_scores <- vector("list", 4L * length(estimators))
+  regularity <- list()
   for (a in 0:1) {
     sc <- lapply(c("psi", "VR", "VA", "W"), function(x)
       stats::setNames(lapply(estimators, function(est) rep(NA_real_, n)), estimators))
@@ -60,15 +80,31 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
         ## No regressions are fitted in this simulation mode: all nuisance
         ## estimates are directly constructed as DGP functions plus controlled
         ## errors, so sample splitting is neither needed nor used.
-        te <- tr <- rep(TRUE, n)
+        te <- reg <- tr <- rep(TRUE, n)
       } else {
-        te <- fold_id == v; tr <- !te
+        te <- fold_id == v
+        if (moment_strategy == "three_way") {
+          regression_fold <- if (v == 1L) folds else v - 1L
+          reg <- fold_id == regression_fold
+          tr <- !(te | reg)
+        } else {
+          reg <- tr <- !te
+        }
       }
+      nonfit <- if (controlled_error || moment_strategy == "shared_training") te else !tr
       ns <- if (nuisance_source == "oracle_error")
         l2_split_nuisance_oracle_error(data, X, tr, te,
-          nuisance_error_rate, nuisance_error_scale, nuisance_error_sign) else
-        l2_split_nuisance(data, Y, A, C, X, tr, te, nuisance_method,
-          sl_lib_prop, sl_lib_miss, sl_lib_outcome)
+          nuisance_error_rate, nuisance_error_scale, nuisance_error_sign,
+          propensity_clip = propensity_clip) else
+        l2_split_nuisance(data, Y, A, C, X, tr, nonfit, nuisance_method,
+          sl_lib_prop, sl_lib_miss, sl_lib_outcome, propensity_clip = propensity_clip)
+      if (!controlled_error) {
+        if (moment_strategy == "three_way") {
+          nonfit_id <- which(nonfit)
+          ns$regression <- lapply(ns$test, `[`, match(which(reg), nonfit_id))
+          ns$test <- lapply(ns$test, `[`, match(which(te), nonfit_id))
+        } else ns$regression <- ns$train
+      }
       if (has_oracle) ns0 <- l2_split_nuisance_oracle_error(data, X, tr, te,
         0, c(e = 0, rho = 0, regression = 0),
         c(e = 1, rho = 1, regression = 1))
@@ -89,12 +125,12 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
         nu$nu2 <- pmax(nu$nu2, 1e-8)
         nu$nu4 <- pmax(nu$nu4, 1e-8)
       } else {
-        iao <- data[[A]][tr] == a & data[[C]][tr] == 0
-        mutr <- ns$train[[paste0("mu", a)]]
-        ztr <- data[[Y]][tr] - mutr
+        iao <- data[[A]][reg] == a & data[[C]][reg] == 0
+        mutr <- ns$regression[[paste0("mu", a)]]
+        ztr <- data[[Y]][reg] - mutr
         nu <- list(nu1 = rep(0, sum(te)))
         for (k in 2:4) nu[[paste0("nu", k)]] <- l2_pseudo_regression(
-          data[tr, , drop = FALSE], X, ztr[iao]^k, iao,
+          data[reg, , drop = FALSE], X, ztr[iao]^k, iao,
           data[te, , drop = FALSE], nuisance_method, sl_lib_outcome)
       }
       b <- delta[a + 1L] * (1 - rho); q <- 1 - e
@@ -152,10 +188,18 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
     }
     for (est in estimators) {
       val <- vapply(sc, function(x) mean(x[[est]]), numeric(1))
+      raw_moments <- val
       val[c("VR", "VA", "W")] <- pmax(val[c("VR", "VA", "W")], 0)
       miss_radius <- if (model == "separated")
         delta_R[a + 1L] else delta_M[a + 1L]
       H <- val["VA"] + miss_radius * sqrt(val["W"])
+      required <- c(if (miss_radius > 0) "VR",
+                    if (delta_A[a + 1L] > 0) "VA",
+                    if (miss_radius > 0 && delta_A[a + 1L] > 0) "W")
+      regularity[[length(regularity) + 1L]] <- data.frame(arm = a,
+        estimator = est, positive_required_moments = all(raw_moments[required] > 0),
+        clipped_moments = paste(names(raw_moments)[raw_moments < 0 &
+          names(raw_moments) %in% c("VR", "VA", "W")], collapse = ","))
       rad <- miss_radius * sqrt(val["VR"]) +
         delta_A[a + 1L] * sqrt(H)
       ifVR <- if (val["VR"] > 0) miss_radius /
@@ -202,16 +246,33 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   out <- list(arm = arm, ate = ate_df, identified_set_ci = outward,
        scores = scores,
        fold_id = fold_id,
+       crossfit_roles = if (controlled_error) NULL else data.frame(
+         evaluation_fold = seq_len(folds),
+         regression_fold = if (moment_strategy == "three_way")
+           c(folds, seq_len(folds - 1L)) else NA_integer_,
+         fit_folds = vapply(seq_len(folds), function(v) {
+           excluded <- if (moment_strategy == "three_way")
+             c(v, if (v == 1L) folds else v - 1L) else v
+           paste(setdiff(seq_len(folds), excluded), collapse = ",")
+         }, character(1))),
        parameters = list(delta = delta, delta_R = delta_R,
          delta_A = delta_A, delta_K = delta_A,
          delta_M = delta_M, model = model, folds = folds,
          requested_folds = requested_folds,
+         propensity_clip = propensity_clip,
+         moment_strategy = moment_strategy,
          sample_splitting = if (controlled_error)
-           "none: nuisances directly perturbed" else "cross-fitting"),
+           "none: nuisances directly perturbed" else
+             if (moment_strategy == "three_way") "rotating three-stage cross-fitting"
+             else "shared-training cross-fitting"),
        inference_note = paste("EIF intervals use the orthogonal endpoint score;",
          "plug-in intervals condition on fitted nuisances and need not account",
          "for first-order nuisance-estimation error."),
        call = match.call())
+  out$moment_diagnostics <- do.call(rbind, regularity)
+  joint <- l2_joint_covariance(out$scores)
+  out$influence_covariance <- joint$influence
+  out$estimate_covariance <- joint$estimate
   class(out) <- c("jointbounds_l2_cs_cf", "list")
   out
 }

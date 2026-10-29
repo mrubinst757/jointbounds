@@ -12,10 +12,22 @@ l2_cs_crossfit(
   nuisance_source = c("estimated", "oracle_error"),
   nuisance_error_rate = 0.25, nuisance_error_scale = 1,
   nuisance_error_sign = c(e = 1, rho = -1, regression = 1),
-  delta_K = NULL
+  delta_K = NULL, propensity_clip = 1e-4,
+  moment_strategy = c("three_way", "shared_training")
 )
 }
 \arguments{
+  \item{moment_strategy}{The default \code{"three_way"} fits structural nuisances,
+  residual-moment regressions, and evaluation scores on disjoint folds (at least
+  three). \code{"shared_training"} reproduces the earlier implementation,
+  reusing structural training observations for residual regressions; this
+  requires additional stability assumptions. Ignored in oracle-error mode.}
+  \item{propensity_clip}{Estimated treatment probabilities are clipped to
+  \code{[propensity_clip, 1 - propensity_clip]} before optimization and score
+  evaluation. Must lie strictly between zero and one half. The default
+  \code{1e-4} preserves previous behavior; use \code{0.01} for the paper's
+  clipped simulation comparison. Response probabilities and oracle reference
+  targets are unchanged.}
   \item{data, Y, A, C, X, delta, delta_R, delta_A, delta_K, delta_M, model, folds,
   nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed}{As in
   \code{l2_bounds()}.}
@@ -29,14 +41,14 @@ l2_cs_crossfit(
 \description{Estimates the closed-form Cauchy--Schwarz L2 outer endpoints using
 cross-fitted plug-in moments and the analytic influence functions for the
 reference mean, second moments, and fourth interaction moment.}
-\value{Arm and ATE endpoint estimates, standard errors, confidence intervals,
-outward identified-set intervals, influence scores, and fold identifiers. For
+\value{The \code{influence_covariance} and \code{estimate_covariance} lists contain joint lower/upper covariance matrices by estimator; the latter divides by the sample size. Arm and ATE endpoint estimates, standard errors, confidence intervals,
+outward identified-set intervals, influence scores, fold identifiers, and
+\code{crossfit_roles} describing the training and evaluation folds. For
 data returned by \code{simulate_l2_data()}, the output also contains a
 \code{true_eif} diagnostic that evaluates the EIF one-step estimator using the
 known nuisance functions.}
-\details{The EIF estimator is Neyman-orthogonal rather than generically
-exactly doubly robust. The manuscript's product-rate conditions, plus moments
-bounded away from zero for the square-root delta method, imply root-n
+\details{The \code{moment_diagnostics} table flags nonpositive required estimated moments and truncation to zero. Smooth EIF inference is not justified at those boundary cases; positive estimates do not establish population regularity. The EIF estimator is Neyman-orthogonal rather than generically
+exactly doubly robust. The manuscript's product-rate conditions, plus positive population moments for the square-root delta method, imply root-n
 asymptotic linearity. A finite eighth outcome moment is a simple sufficient
 condition for finite variance of the fourth-moment endpoint score.
 In controlled-error mode, \eqn{e_a}, \eqn{rho_a}, \eqn{mu_a}, and the

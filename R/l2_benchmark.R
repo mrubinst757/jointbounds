@@ -25,8 +25,9 @@ utils::globalVariables(c(".radius_x", "estimate", "simultaneous_low",
 #' @inheritParams l2_bounds
 #' @return An object of class jointbounds_l2_benchmarks with a results data frame,
 #'   selected subsets, row-level centered influence scores when requested, and
-#'   metadata. The signed benchmark is reduced-Z minus full-X, so it can be
-#'   added directly to a full-X reference estimate during frontier inversion.
+#'   metadata. The signed discrepancy is reduced-Z minus full-X. Frontier
+#'   functions use its magnitude to shift toward zero by default, retaining
+#'   the raw discrepancy and paired scores for inference.
 #' @export
 l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
                                max_per_pz = 10L, subsets = NULL,
@@ -196,7 +197,7 @@ l2_benchmark_band <- function(benchmarks, estimator = "aipw", B = 1000L,
 #' Simultaneous confidence bands for calibration frontiers
 #'
 #' Combines each sensitivity-endpoint influence score with the paired
-#' reduced-adjustment ATE influence score, constructs pointwise and joint
+#' transformed calibration-target influence score, constructs pointwise and joint
 #' multiplier bands for their difference, and inverts those bands over the
 #' evaluated sensitivity grid.  This implements the calibration-frontier
 #' inference construction in the companion paper while retaining the
@@ -208,16 +209,28 @@ l2_benchmark_band <- function(benchmarks, estimator = "aipw", B = 1000L,
 #'   inference currently requires `"aipw"`.
 #' @param endpoint_estimator Endpoint estimator stored in `surface`; defaults
 #'   to `"eif"` for CS bounds and `"dr"` for sharp bounds.
-#' @param active_endpoint Use `"auto"` to select the lower or upper endpoint
-#'   from the sign of the paired reduced-minus-full benchmark. A fixed
-#'   `"lower"`, `"upper"`, or `"both"` may be supplied for a prespecified
-#'   direction.
+#' @param active_endpoint `"auto"` and `"both"` require both endpoint
+#'   inequalities for interval inclusion. `"lower"` or `"upper"` requests
+#'   only the corresponding one-sided crossing.
+#' @param simultaneous_scope `"all_benchmarks"` (the existing default)
+#'   takes the multiplier maximum over every supplied benchmark, endpoint,
+#'   and grid point. `"per_benchmark"` uses a separate maximum for each
+#'   benchmark, still covering its endpoints and full grid. Pointwise
+#'   frontier intervals are unaffected by this option.
 #' @param B Number of multiplier draws.
 #' @param conf_level Confidence level for pointwise and simultaneous bands.
 #' @param multiplier Rademacher or standard-normal multipliers.
 #' @param seed Random seed.
 #' @param radius_x,radius_y Sensitivity-radius columns. They default to
 #'   `delta_M` and `delta_K` when available.
+#' @param calibration Calibration direction: `"toward_zero"` (default) uses
+#'   full - sign(full) * alpha * abs(reduced - full); `"signed"` preserves
+#'   the omission-change direction. Exact zero references or discrepancies
+#'   are rejected for toward-zero EIF inference because the target is nonregular.
+#' @param alpha Positive multiplier of the omission-change magnitude.
+#' @param interpolate Use linear interpolation for descriptive crossings. Defaults
+#'   to FALSE: confidence limits use the first compatible evaluated grid point.
+#'   Interpolation has no automatic coverage guarantee between grid points.
 #' @return A list containing the estimated frontiers, the grid-level gap
 #'   estimates and bands, the paired influence-score matrix, and the joint
 #'   multiplier critical value.
@@ -230,7 +243,16 @@ l2_calibration_band <- function(surface, benchmarks,
                                 B = 1000L, conf_level = .95,
                                 multiplier = c("rademacher", "normal"),
                                 seed = 1L, radius_x = NULL,
-                                radius_y = NULL) {
+                                radius_y = NULL,
+                                calibration = c("toward_zero", "signed"),
+                                alpha = 1,
+                                simultaneous_scope = c("all_benchmarks", "per_benchmark"),
+                                interpolate = FALSE) {
+  if (!is.logical(interpolate) || length(interpolate) != 1L || is.na(interpolate))
+    stop("interpolate must be TRUE or FALSE")
+  if (interpolate) warning("Linear interpolation is descriptive: confidence coverage between evaluated grid points is not guaranteed by the finite-grid theory.", call. = FALSE)
+  calibration <- match.arg(calibration)
+  simultaneous_scope <- match.arg(simultaneous_scope)
   if (!inherits(surface, "jointbounds_l2_sensitivity_band") ||
       is.null(surface$fits) || !length(surface$fits))
     stop("surface must come from l2_sensitivity_band(..., keep_fits = TRUE)")
@@ -269,18 +291,28 @@ l2_calibration_band <- function(surface, benchmarks,
 
   gap_rows <- list(); gap_scores <- list(); h <- 0L
   for (j in seq_len(nrow(bd))) {
-    target <- bd$reduced_estimate[j]
     reference <- bd$full_estimate[j]
-    if (!is.finite(target) || !is.finite(reference))
-      stop("Benchmark target and full-X reference estimates must be finite")
-    direction <- if (active_endpoint != "auto") active_endpoint else
-      if (target < reference) "lower" else if (target > reference)
-        "upper" else "both"
-    if (direction == "both") {
-      warning("Benchmark ", bd$label[j],
-        " equals its full-X estimate; its calibration frontier begins at the origin")
+    discrepancy <- bd$reduced_estimate[j] - reference
+    transformation <- l2_calibration_target(reference, discrepancy, alpha,
+      calibration)
+    target <- transformation$target
+    if (calibration == "toward_zero" &&
+        (reference == 0 || discrepancy == 0))
+      stop("Toward-zero EIF inference requires nonzero full estimate and omission discrepancy; ordinary Wald/multiplier inference is not supported at these boundaries")
+    full_score <- benchmarks$full_scores[[benchmark_estimator]]
+    if (is.null(full_score) || length(full_score) != n ||
+        any(!is.finite(c(full_score, target_scores[[j]]))))
+      stop("Finite paired full-X and reduced-Z influence scores on the same observations are required")
+    full_score <- full_score - mean(full_score)
+    reduced_score <- target_scores[[j]] - mean(target_scores[[j]])
+    target_score <- full_score + transformation$coefficient *
+      (reduced_score - full_score)
+    # Separate estimators need not share the same reference in finite samples.
+    # Auto therefore checks actual interval inclusion, not a sign shortcut.
+    direction <- if (active_endpoint == "auto") "both" else active_endpoint
+    if (target == reference && !isTRUE(benchmarks$fixed_target)) {
+      warning("Benchmark ", bd$label[j], " equals its full-X estimate")
     }
-    target_score <- target_scores[[j]] - mean(target_scores[[j]])
     for (i in seq_len(nrow(grid))) {
       fit <- surface$fits[[i]]
       endpoints <- if (direction == "both") c("lower", "upper") else direction
@@ -303,6 +335,7 @@ l2_calibration_band <- function(surface, benchmarks,
         gap_rows[[h]] <- data.frame(benchmark_id = bd$benchmark_id[j],
           label = bd$label[j], grid_id = i, endpoint = endpoint,
           direction = direction, target = target, reference = reference,
+          calibration = calibration, alpha = alpha,
           gap = gap, se = stats::sd(score) / sqrt(n),
           stringsAsFactors = FALSE)
       }
@@ -315,42 +348,57 @@ l2_calibration_band <- function(surface, benchmarks,
   regular <- is.finite(sigma) & sigma > 0
   if (!any(regular)) stop("All combined calibration-gap scores have zero variance")
   set.seed(seed)
-  suprema <- numeric(B)
+  ids <- unique(gaps$benchmark_id)
+  group <- if (simultaneous_scope == "all_benchmarks")
+    rep(1L, nrow(gaps)) else match(gaps$benchmark_id, ids)
+  n_groups <- max(group)
+  draws <- matrix(0, nrow = B, ncol = n_groups)
   for (b in seq_len(B)) {
     xi <- if (multiplier == "rademacher")
       sample(c(-1, 1), n, replace = TRUE) else stats::rnorm(n)
     process <- colSums(score_matrix[, regular, drop = FALSE] * xi) /
       (sqrt(n) * sigma[regular])
-    suprema[b] <- max(abs(process))
+    for (j in seq_len(n_groups)) {
+      values <- abs(process[group[regular] == j])
+      draws[b, j] <- if (length(values)) max(values) else 0
+    }
   }
-  critical <- unname(stats::quantile(suprema, conf_level, type = 8))
-  zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
+  critical <- apply(draws, 2L, stats::quantile, probs = conf_level,
+    type = 8, names = FALSE)
+  suprema <- if (n_groups == 1L) as.numeric(draws) else draws
+  if (simultaneous_scope == "per_benchmark") {
+    names(critical) <- as.character(ids)
+    if (is.matrix(suprema)) colnames(suprema) <- as.character(ids)
+  }
+  gaps$simultaneous_critical_value <- unname(critical[group])
+  # Pointwise in radius_x: cover every endpoint and searched radius_y for
+  # each benchmark before selecting a crossing. This is not curve-wide.
+  slice <- interaction(gaps$benchmark_id, gaps[[radius_x]], drop = TRUE)
+  n_contrasts <- stats::ave(rep(1, nrow(gaps)), slice, FUN = sum)
+  zcrit <- stats::qnorm(1 - (1 - conf_level) / (2 * n_contrasts))
   gaps$pointwise_low <- gaps$gap - zcrit * gaps$se
   gaps$pointwise_high <- gaps$gap + zcrit * gaps$se
-  gaps$simultaneous_low <- gaps$gap - critical * gaps$se
-  gaps$simultaneous_high <- gaps$gap + critical * gaps$se
+  gaps$simultaneous_low <- gaps$gap - gaps$simultaneous_critical_value * gaps$se
+  gaps$simultaneous_high <- gaps$gap + gaps$simultaneous_critical_value * gaps$se
 
   crossing <- function(z, value) {
-    z <- z[order(z[[radius_y]]), , drop = FALSE]
-    yy <- z[[value]]; xx <- z[[radius_y]]
-    ok <- is.finite(yy) & is.finite(xx)
-    yy <- yy[ok]; xx <- xx[ok]
-    if (!length(yy) || !any(yy <= 0)) return(NA_real_)
-    k <- which(yy <= 0)[1L]
-    if (k == 1L || !is.finite(yy[k - 1L]) || yy[k] == yy[k - 1L])
-      return(xx[k])
-    frac <- -yy[k - 1L] / (yy[k] - yy[k - 1L])
-    if (!is.finite(frac) || frac < 0 || frac > 1) return(xx[k])
-    xx[k - 1L] + frac * (xx[k] - xx[k - 1L])
+    xx <- sort(unique(z[[radius_y]]))
+    endpoints <- unique(z$endpoint)
+    yy <- vapply(endpoints, function(ep) {
+      zz <- z[z$endpoint == ep, , drop = FALSE]
+      zz[[value]][match(xx, zz[[radius_y]])]
+    }, numeric(length(xx)))
+    yy <- matrix(yy, nrow = length(xx))
+    l2_frontier_crossing(xx, yy, interpolate = interpolate)
   }
-  group_key <- interaction(gaps$benchmark_id, gaps$endpoint,
+  group_key <- interaction(gaps$benchmark_id,
                            gaps[[radius_x]], drop = TRUE)
   frontier <- do.call(rbind, lapply(split(gaps, group_key), function(z) {
     vals <- vapply(c("gap", "pointwise_low", "pointwise_high",
       "simultaneous_low", "simultaneous_high"),
       function(nm) crossing(z, nm), numeric(1))
     data.frame(benchmark_id = z$benchmark_id[1L], label = z$label[1L],
-      endpoint = z$endpoint[1L], direction = z$direction[1L],
+      endpoint = z$direction[1L], direction = z$direction[1L],
       radius_x_value = z[[radius_x]][1L], estimate = vals[["gap"]],
       pointwise_low = vals[["pointwise_low"]],
       pointwise_high = vals[["pointwise_high"]],
@@ -359,23 +407,33 @@ l2_calibration_band <- function(surface, benchmarks,
       stringsAsFactors = FALSE)
   }))
   names(frontier)[names(frontier) == "radius_x_value"] <- radius_x
-  for (pair in list(c("pointwise_low", "pointwise_high"),
-                    c("simultaneous_low", "simultaneous_high"))) {
-    lo <- pmin(frontier[[pair[1L]]], frontier[[pair[2L]]], na.rm = TRUE)
-    hi <- pmax(frontier[[pair[1L]]], frontier[[pair[2L]]], na.rm = TRUE)
-    neither <- !is.finite(frontier[[pair[1L]]]) &
-      !is.finite(frontier[[pair[2L]]])
-    lo[neither] <- hi[neither] <- NA_real_
-    frontier[[pair[1L]]] <- lo; frontier[[pair[2L]]] <- hi
-  }
+  # Preserve an unobserved upper crossing as NA; replacing it with the
+  # finite lower crossing would spuriously collapse the confidence interval.
   frontier <- frontier[order(frontier$benchmark_id, frontier$endpoint,
                              frontier[[radius_x]]), , drop = FALSE]
   rownames(frontier) <- NULL
+  compatibility <- do.call(rbind, lapply(split(gaps,
+    interaction(gaps$benchmark_id, gaps$grid_id, drop = TRUE)), function(z) {
+    row <- z[1L, c("benchmark_id", "label", "grid_id", radius_x, radius_y), drop = FALSE]
+    columns <- c(estimate = "gap", pointwise_outer = "pointwise_low",
+      pointwise_inner = "pointwise_high", simultaneous_outer = "simultaneous_low",
+      simultaneous_inner = "simultaneous_high")
+    for (nm in names(columns)) row[[nm]] <-
+      all(is.finite(z[[columns[[nm]]]])) && all(z[[columns[[nm]]]] <= 0)
+    row
+  }))
+  rownames(compatibility) <- NULL
   out <- list(frontier = frontier, gaps = gaps, scores = score_matrix,
     critical_value = critical, suprema = suprema, conf_level = conf_level,
     multiplier = multiplier, endpoint_estimator = endpoint_estimator,
     benchmark_estimator = benchmark_estimator, radius_x = radius_x,
-    radius_y = radius_y, B = B, call = match.call())
+    radius_y = radius_y, B = B, calibration = calibration, alpha = alpha,
+    simultaneous_scope = simultaneous_scope, interpolate = interpolate,
+    compatibility = compatibility,
+    inference_note = if (interpolate)
+      "Interpolated crossings are descriptive; finite-grid coverage does not establish between-grid coverage." else
+      "Grid-based inversion. NA crossings are beyond the evaluated grid; no extrapolation is made.",
+    call = match.call())
   class(out) <- "jointbounds_l2_calibration_band"
   out
 }
@@ -428,7 +486,10 @@ plot.jointbounds_l2_calibration_band <- function(x, ...) {
 l2_benchmark_frontiers <- function(surface, benchmarks,
                                    estimator = c("aipw", "plugin"),
                                    radius_x = NULL, radius_y = NULL,
-                                   plot = FALSE) {
+                                   plot = FALSE,
+                                   calibration = c("toward_zero", "signed"),
+                                   alpha = 1) {
+  calibration <- match.arg(calibration)
   estimator <- match.arg(estimator)
   surface_data <- if (inherits(surface, "jointbounds_l2_grid"))
     surface$results else surface
@@ -445,7 +506,8 @@ l2_benchmark_frontiers <- function(surface, benchmarks,
       is.finite(b$full_estimate[i])) b$full_estimate[i] else NULL
     z <- l2_calibration_frontier(surface, benchmark = b$delta_bench[i],
       type = "discrepancy", reference = paired_reference,
-      radius_x = radius_x, radius_y = radius_y)
+      radius_x = radius_x, radius_y = radius_y,
+      calibration = calibration, alpha = alpha)
     z$benchmark_id <- b$benchmark_id[i]; z$label <- b$label[i]
     z$p_z <- b$p_z[i]; z$estimator <- estimator
     if ("p_x" %in% names(b)) z$p_x <- b$p_x[i]
@@ -552,10 +614,12 @@ l2_grid_equal_radius_value <- function(surface, threshold, method,
 
 l2_benchmark_equal_radius_value <- function(surface, benchmark, method,
                                              radius_x, radius_y,
-                                             reference = NULL) {
+                                             reference = NULL,
+                                             calibration = "toward_zero", alpha = 1) {
   z <- l2_calibration_frontier(surface, benchmark = benchmark,
     type = "discrepancy", reference = reference,
-    radius_x = radius_x, radius_y = radius_y)
+    radius_x = radius_x, radius_y = radius_y,
+    calibration = calibration, alpha = alpha)
   ry <- paste0("minimum_", radius_y)
   z <- z[z$method == method & z$compatible_on_grid &
     is.finite(z[[radius_x]]) & is.finite(z[[ry]]), , drop = FALSE]
@@ -610,10 +674,14 @@ l2_equal_radius_comparison <- function(surface, frontiers, threshold = 0,
       bench_high <- m$benchmark + zcrit * m$se
       full_low <- m$full_estimate - zcrit * m$full_se
       full_high <- m$full_estimate + zcrit * m$full_se
+      calibration <- if ("calibration" %in% names(m)) m$calibration else "signed"
+      alpha <- if ("alpha" %in% names(m)) m$alpha else 1
       br <- c(l2_benchmark_equal_radius_value(surface, bench_low,
-        out$method[i], rx, ry, reference = m$full_estimate),
+        out$method[i], rx, ry, reference = m$full_estimate,
+        calibration = calibration, alpha = alpha),
         l2_benchmark_equal_radius_value(surface, bench_high,
-        out$method[i], rx, ry, reference = m$full_estimate))
+        out$method[i], rx, ry, reference = m$full_estimate,
+        calibration = calibration, alpha = alpha))
       out$benchmark_radius_low[i] <- if (bench_low <= 0 && bench_high >= 0)
         0 else if (any(is.finite(br))) min(br[is.finite(br)]) else NA_real_
       out$benchmark_radius_high[i] <- if (all(!is.finite(br))) NA_real_ else

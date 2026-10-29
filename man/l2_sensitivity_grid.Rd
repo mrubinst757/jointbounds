@@ -1,8 +1,6 @@
 \name{l2_sensitivity_grid}
 \alias{l2_sensitivity_grid}
 \alias{print.jointbounds_l2_grid}
-\alias{l2_tipping_frontier}
-\alias{plot.jointbounds_l2_frontier}
 \title{Continuous-outcome L2 sensitivity surfaces and tipping frontiers}
 \usage{
 l2_sensitivity_grid(data, Y, A, C, X, grid, delta = c(1, 1),
@@ -14,7 +12,7 @@ l2_sensitivity_grid(data, Y, A, C, X, grid, delta = c(1, 1),
 
 \method{print}{jointbounds_l2_grid}(x, ...)
 
-l2_tipping_frontier(x, threshold = 0, endpoint = c("lower", "upper"), plot = FALSE)
+l2_tipping_frontier(x, threshold = 0, endpoint = c("both", "lower", "upper"), plot = FALSE)
 
 \method{plot}{jointbounds_l2_frontier}(x, ...)
 }
@@ -23,7 +21,7 @@ l2_tipping_frontier(x, threshold = 0, endpoint = c("lower", "upper"), plot = FAL
   \item{grid}{Data frame containing delta_M and delta_K for the primary net model, or delta_R and delta_K for the separated model. Legacy delta_A is accepted. Arm-specific columns may use suffixes _0 and _1.}
   \item{x}{A grid object or its results data frame.}
   \item{threshold}{Null threshold defining the tipping frontier.}
-  \item{endpoint}{Endpoint used to define tipping.}
+  \item{endpoint}{Both endpoint inequalities by default; use lower or upper for an explicitly one-sided crossing.}
   \item{plot}{Draw the frontier before returning it.}
   \item{...}{Additional base-graphics arguments.}
 }
@@ -33,7 +31,7 @@ pair, and the raw nested diagnostics. \code{l2_tipping_frontier()} returns a
 plot-ready frontier data frame.}
 \description{Evaluates arm and ATE bounds over a two-dimensional sensitivity
 grid and extracts the first threshold crossing, using linear interpolation
-between adjacent grid points. Sharp-solver diagnostics are retained separately
+between adjacent grid points. Interpolation is descriptive; use \code{l2_tipping_band()} for finite-grid confidence limits. Sharp-solver diagnostics are retained separately
 for every radius pair; if anything is flagged, one consolidated warning lists
 the affected grid IDs. Groups that do not cross are explicitly marked.}
 \examples{

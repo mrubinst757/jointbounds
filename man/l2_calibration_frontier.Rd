@@ -8,7 +8,9 @@ l2_calibration_frontier(
   type = c("target", "discrepancy"),
   reference = NULL,
   radius_x = NULL,
-  radius_y = NULL
+  radius_y = NULL,
+  calibration = c("toward_zero", "signed"),
+  alpha = 1
 )
 }
 \arguments{
@@ -17,6 +19,10 @@ l2_calibration_frontier(
   \item{type}{Whether \code{benchmark} is a target or a discrepancy from the reference.}
   \item{reference}{Optional reference value. By default, uses \code{estimate_reference}.}
   \item{radius_x, radius_y}{Names of the two sensitivity-radius columns.}
+  \item{calibration}{For discrepancies, \code{"toward_zero"} uses
+  reference - sign(reference) * alpha * abs(benchmark), while
+  \code{"signed"} adds alpha * benchmark. Explicit targets are unchanged.}
+  \item{alpha}{One finite positive multiplier for discrepancies.}
 }
 \value{
 A data frame containing the minimum compatible second radius at every first

@@ -42,7 +42,9 @@ l2_compare_dr_plugin(
   program.}
   \item{dgp_args}{Named list of additional arguments passed to
   \code{simulate_l2_data()}.}
-  \item{...}{Arguments passed to \code{l2_sharp_crossfit()}.}
+  \item{...}{Arguments passed to the selected cross-fitted estimators.
+  \code{moment_strategy} is passed only to \code{l2_cs_crossfit()};
+  sharp-only optimizer arguments are not passed to the CS estimator.}
 }
 \value{A list containing replication-level results, endpoint bias, RMSE,
 empirical standard deviations, mean standard errors, Wald coverage, true-ATE

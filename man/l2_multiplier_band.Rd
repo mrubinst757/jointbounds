@@ -1,6 +1,5 @@
 \name{l2_multiplier_band}
 \alias{l2_multiplier_band}
-\alias{l2_sensitivity_band}
 \title{Multiplier simultaneous bands for L2 sensitivity endpoints}
 \usage{
 l2_multiplier_band(

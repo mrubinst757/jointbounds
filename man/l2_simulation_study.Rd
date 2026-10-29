@@ -1,7 +1,6 @@
 \name{l2_simulation_study}
 \alias{l2_simulation_study}
 \alias{print.jointbounds_l2_simulation}
-\alias{plot.jointbounds_l2_simulation}
 \title{Run and summarize the continuous-outcome simulation study}
 \usage{
 l2_simulation_study(

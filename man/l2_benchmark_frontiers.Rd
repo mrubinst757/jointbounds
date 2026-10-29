@@ -1,15 +1,13 @@
 \name{l2_benchmark_frontiers}
 \alias{l2_benchmark_frontiers}
-\alias{l2_equal_radius}
-\alias{l2_overall_equal_radius}
-\alias{l2_equal_radius_comparison}
 \alias{plot.jointbounds_l2_benchmark_frontiers}
 \alias{plot.jointbounds_l2_equal_radius_comparison}
 \title{Invert sensitivity bounds for multiple calibration benchmarks}
 \usage{
 l2_benchmark_frontiers(
   surface, benchmarks, estimator = c("aipw", "plugin"),
-  radius_x = NULL, radius_y = NULL, plot = FALSE
+  radius_x = NULL, radius_y = NULL, plot = FALSE,
+  calibration = c("toward_zero", "signed"), alpha = 1
 )
 \method{plot}{jointbounds_l2_benchmark_frontiers}(x, facet_pz = TRUE, ...)
 
@@ -32,6 +30,10 @@ l2_equal_radius_comparison(
   \item{estimator}{Benchmark estimator to invert.}
   \item{radius_x, radius_y}{Names of the two sensitivity-radius columns.}
   \item{plot}{Whether to draw the returned comparison.}
+  \item{calibration}{\code{"toward_zero"} shifts the paired full-X reference
+  toward zero using the omission magnitude. \code{"signed"} preserves the
+  omission-change direction.}
+  \item{alpha}{One finite positive multiplier of the omission magnitude.}
   \item{x}{A frontier or equal-radius comparison object.}
   \item{facet_pz}{Whether to facet the benchmark plot by retained-set size.}
   \item{...}{Additional plotting arguments.}
@@ -41,7 +43,9 @@ l2_equal_radius_comparison(
   \item{conf_level}{Confidence level used when \code{uncertainty = TRUE}.}
 }
 \description{Computes and plots the joint MAR/NUC radius frontier capable of
-producing every supplied leave-covariate-out effect discrepancy.}
+compatible with every transformed leave-covariate-out benchmark.
+The default uses reference - sign(reference) * alpha * abs(discrepancy).
+Outer-bound compatibility does not imply attainability under the original model.}
 \value{A plot-ready data frame with one frontier per benchmark and method.
 \code{l2_equal_radius()} returns the smallest common radius sufficient to
 reproduce each benchmark on the evaluated grid. The plot method returns a

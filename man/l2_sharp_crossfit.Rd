@@ -13,10 +13,16 @@ l2_sharp_crossfit(
   nuisance_source = c("estimated", "oracle_error"),
   nuisance_error_rate = 0.25, nuisance_error_scale = 1,
   nuisance_error_sign = c(e = 1, rho = -1, regression = 1),
-  delta_K = NULL
+  delta_K = NULL, propensity_clip = 1e-4
 )
 }
 \arguments{
+  \item{propensity_clip}{Estimated treatment probabilities are clipped to
+  \code{[propensity_clip, 1 - propensity_clip]} before optimization and score
+  evaluation. Must lie strictly between zero and one half. The default
+  \code{1e-4} preserves previous behavior; use \code{0.01} for the paper's
+  clipped simulation comparison. Response probabilities and oracle reference
+  targets are unchanged.}
   \item{data, Y, A, C, X, delta, delta_R, delta_A, delta_K, delta_M, model, basis,
   nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed, control,
   diagnostic_control}{As
@@ -41,7 +47,7 @@ l2_sharp_crossfit(
   \item{nuisance_error_sign}{Independently configurable signs, each equal to
   -1 or 1, for the \code{e}, \code{rho}, \code{mu}, and \code{regression} errors.}
 }
-\value{A list containing arm and ATE endpoint estimates, standard errors,
+\value{The \code{influence_covariance} and \code{estimate_covariance} lists contain joint lower/upper covariance matrices by estimator; the latter divides by the sample size. A list containing arm and ATE endpoint estimates, standard errors,
 confidence intervals, outward identified-set intervals, influence scores,
 fold identifiers, an endpoint-by-fold diagnostic table, a consolidated
 diagnostic summary, and the original nested dual and active-set diagnostics.

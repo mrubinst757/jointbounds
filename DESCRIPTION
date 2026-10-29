@@ -1,6 +1,6 @@
 Package: jointbounds
 Title: Bounds on Causal Effects with Mixed Informative and Non-Informative Missingness
-Version: 0.4.0
+Version: 0.4.1
 Authors@R: c(
     person("Max", "Rubinstein", email = "mrubinstein@rand.org", role = c("aut", "cre")),
     person("Denis", "Agniel", email = "dagniel@rand.org", role = "aut")
@@ -40,6 +40,7 @@ Suggests:
   testthat,
   ggplot2,
   lpSolve,
+  CVXR,
   knitr,
   rmarkdown
 VignetteBuilder: knitr

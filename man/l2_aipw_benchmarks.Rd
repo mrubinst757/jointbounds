@@ -33,5 +33,6 @@ covariate sets. The paired reduced-minus-full discrepancy is a combined
 MAR/NUC calibration benchmark.}
 \value{Benchmark estimates, selected subsets, optional paired discrepancy,
 reduced-target, and full-X influence scores, the full-X estimate, and
-metadata. The target scores are used by \code{l2_calibration_band()} to retain
-covariance with the sensitivity-bound estimators.}
+metadata. Raw signed discrepancies and reduced-target scores are retained.
+\code{l2_calibration_band()} combines the full and reduced scores for its
+toward-zero target by default, retaining covariance with bound estimators.}

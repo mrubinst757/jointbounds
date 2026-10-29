@@ -1227,25 +1227,39 @@ print.jointbounds_l2_grid <- function(x, ...) {
 #'
 #' @param x Output from `l2_sensitivity_grid()` or its results data frame.
 #' @param threshold Null threshold, usually zero.
-#' @param endpoint Endpoint used for tipping; defaults to `"lower"`.
+#' @param endpoint Use both compatibility inequalities by default. Select
+#'   `"lower"` or `"upper"` only for a one-sided endpoint crossing.
 #' @param plot Draw the frontier before returning it.
 #' @return A data frame containing the first threshold crossing for each value
-#'   of the missingness radius and method. Crossings are linearly interpolated between grid
+#'   of the missingness radius and method. This is descriptive inversion; use
+#'   l2_tipping_band() for finite-grid confidence limits. Crossings are linearly interpolated between grid
 #'   points; groups that do not tip are retained with `tipped_on_grid = FALSE`.
 #' @export
 l2_tipping_frontier <- function(x, threshold = 0,
-                                endpoint = c("lower", "upper"), plot = FALSE) {
+                                endpoint = c("both", "lower", "upper"), plot = FALSE) {
   endpoint <- match.arg(endpoint)
   d <- if (inherits(x, "jointbounds_l2_grid")) x$results else x
   radius_x <- if ("delta_M" %in% names(d)) "delta_M" else "delta_R"
   radius_y <- if ("delta_K" %in% names(d)) "delta_K" else "delta_A"
-  if (!is.data.frame(d) || !all(c(radius_x, endpoint, "method") %in% names(d)))
+  if (!is.data.frame(d) || !all(c(radius_x, if (endpoint == "both") c("lower", "upper") else endpoint, "method") %in% names(d)))
     stop("x must contain a missingness radius, method, and the selected endpoint")
   if (!radius_y %in% names(d))
     stop("x must contain delta_K (or legacy delta_A) to trace a frontier")
   split_d <- split(d, interaction(d[[radius_x]], d$method, drop = TRUE))
   out <- lapply(split_d, function(z) {
     z <- z[order(z[[radius_y]]), , drop = FALSE]
+    if (endpoint == "both") {
+      v <- l2_frontier_crossing(z[[radius_y]],
+        cbind(z$lower - threshold, threshold - z$upper), interpolate = TRUE)
+      ans <- z[if (is.na(v)) nrow(z) else which(z[[radius_y]] >= v)[1L], , drop = FALSE]
+      ans[[radius_y]] <- v
+      ans$tipped_on_grid <- is.finite(v)
+      ans$interpolated <- is.finite(v) && !v %in% z[[radius_y]]
+      if (is.na(v)) ans[c("lower", "upper")] <- NA_real_
+      else if (ans$interpolated) for (ep in c("lower", "upper"))
+        ans[[ep]] <- stats::approx(z[[radius_y]], z[[ep]], xout = v)$y
+      return(ans)
+    }
     hit <- if (endpoint == "lower") z[[endpoint]] <= threshold else
       z[[endpoint]] >= threshold
     hit[!is.finite(hit)] <- FALSE
@@ -1328,10 +1342,17 @@ plot.jointbounds_l2_frontier <- function(x, ...) {
 #' @return A data frame giving the minimum compatible `radius_y` at each
 #'   `radius_x` and method. CS inversions are labeled as outer approximations.
 #' @export
+#' @param calibration For discrepancies, `"toward_zero"` (default) shifts
+#'   reference by -sign(reference) * alpha * abs(benchmark). `"signed"`
+#'   instead adds alpha * benchmark. Explicit targets are never transformed.
+#' @param alpha Positive multiplier applied when type is `"discrepancy"`.
 l2_calibration_frontier <- function(x, benchmark,
                                     type = c("target", "discrepancy"),
                                     reference = NULL, radius_x = NULL,
-                                    radius_y = NULL) {
+                                    radius_y = NULL,
+                                    calibration = c("toward_zero", "signed"),
+                                    alpha = 1) {
+  calibration <- match.arg(calibration)
   type <- match.arg(type)
   d <- if (inherits(x, "jointbounds_l2_grid")) x$results else x
   if (!is.data.frame(d) || !all(c("lower", "upper", "method") %in% names(d)))
@@ -1356,7 +1377,8 @@ l2_calibration_frontier <- function(x, benchmark,
   }
   if (length(reference) != 1L || !is.finite(reference))
     stop("reference must be one finite number")
-  target <- if (type == "discrepancy") reference + benchmark else benchmark
+  transformed <- l2_calibration_target(reference, benchmark, alpha, calibration)
+  target <- if (type == "discrepancy") transformed$target else benchmark
   d$compatible <- d$lower <= target & target <= d$upper
   groups <- split(d, interaction(d[[radius_x]], d$method, drop = TRUE))
   ans <- lapply(groups, function(z) {
@@ -1367,6 +1389,7 @@ l2_calibration_frontier <- function(x, benchmark,
       minimum_radius_y = if (is.na(j)) NA_real_ else ok[[radius_y]][j],
       method = z$method[1L], compatible_on_grid = nrow(ok) > 0,
       benchmark = benchmark, reference = reference, target = target,
+      calibration = if (type == "target") "target" else calibration, alpha = alpha,
       approximation = if (z$method[1L] == "cs")
         "outer approximation from CS bounds" else
         "inversion of empirical sharp sieve bounds",
@@ -1378,6 +1401,22 @@ l2_calibration_frontier <- function(x, benchmark,
   names(out)[names(out) == "minimum_radius_y"] <- paste0("minimum_", radius_y)
   rownames(out) <- NULL
   out[order(out$method, out[[radius_x]]), , drop = FALSE]
+}
+
+# Internal shared transformation. coefficient multiplies the paired
+# reduced-minus-full influence score; the full-reference score is also needed.
+l2_calibration_target <- function(reference, discrepancy, alpha = 1,
+                                  calibration = c("toward_zero", "signed")) {
+  calibration <- match.arg(calibration)
+  if (length(alpha) != 1L || !is.finite(alpha) || alpha <= 0)
+    stop("alpha must be one finite positive number")
+  if (length(reference) != 1L || length(discrepancy) != 1L ||
+      any(!is.finite(c(reference, discrepancy))))
+    stop("reference and discrepancy must be finite scalars")
+  coefficient <- if (calibration == "signed") alpha else
+    -alpha * sign(reference) * sign(discrepancy)
+  list(target = reference + coefficient * discrepancy,
+    coefficient = coefficient)
 }
 
 #' Calibrate L2 sensitivity radii from benchmark tilts

@@ -11,6 +11,11 @@
 #'
 #' @inheritParams l2_bounds
 #' @param conf_level Wald confidence level.
+#' @param propensity_clip Clip estimated treatment probabilities to
+#'   `[propensity_clip, 1 - propensity_clip]` before optimization and score
+#'   evaluation. A finite scalar strictly between zero and one half. The
+#'   default `1e-4` preserves previous behavior; simulation drivers use `0.01`.
+#'   Response probabilities and oracle reference targets are not changed.
 #' @param folds Number of cross-fitting folds when nuisances are fitted. At
 #'   least three folds are then used so the three stages remain disjoint.
 #'   Controlled-error simulations directly construct nuisance estimates and
@@ -32,6 +37,8 @@
 #'   perturbation directions for `e`, `rho`, and `regression`.
 #' @return A list with arm and ATE endpoint estimates, standard errors,
 #'   confidence intervals, fold diagnostics, and row-level influence scores.
+#' @details `influence_covariance` and `estimate_covariance` give joint
+#'   lower/upper covariance matrices by estimator, before and after division by n.
 #' @export
 l2_sharp_crossfit <- function(data, Y, A, C, X,
                               delta = c(1, 1), delta_R = c(.2, .2),
@@ -50,7 +57,8 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                               nuisance_error_scale = 1,
                               nuisance_error_sign = c(e = 1, rho = -1,
                                                       regression = 1),
-                              delta_K = NULL) {
+                              delta_K = NULL, propensity_clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
   nuisance_method <- match.arg(nuisance_method)
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
@@ -113,9 +121,11 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
       )
       ns <- if (nuisance_source == "oracle_error")
         l2_split_nuisance_oracle_error(data, X, tr, nonfit,
-          nuisance_error_rate, nuisance_error_scale, nuisance_error_sign)
+          nuisance_error_rate, nuisance_error_scale, nuisance_error_sign,
+          propensity_clip = propensity_clip)
       else l2_split_nuisance(data, Y, A, C, X, tr, nonfit,
-        nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome)
+        nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome,
+        propensity_clip = propensity_clip)
       ns <- split_nonfit(ns)
       bp0 <- l2_basis_split(data, X, basis, tr, nonfit)
       bp <- list(train = bp0$train,
@@ -191,6 +201,15 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
         de * (as.numeric(data[[A]][te] == a) - e) +
         drho * as.numeric(data[[A]][te] == a) / e *
           (as.numeric(data[[C]][te] == 0) - rho)
+      radR <- if (model == "separated") delta_R[a + 1L] else delta_M[a + 1L]
+      if (radR == 0 && delta_A[a + 1L] == 0) {
+        # With M = L = 1 the endpoint is the reference mean. Use its
+        # AIPW score directly: separate signed pseudo-regressions (or
+        # artificial regression errors) must not split the two endpoints.
+        mu <- ns$test[[paste0("mu", a)]]
+        yy <- data[[Y]][te]; yy[!is.finite(yy)] <- 0
+        dr <- sigma * (mu + S / (e * rho) * (yy - mu))
+      }
       score_plugin[te] <- plugin
       score_dr[te] <- dr
       if (has_oracle) {
@@ -310,6 +329,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                                   "none: nuisances directly perturbed" else
                                   "rotating three-stage cross-fitting",
                                 nuisance_source = nuisance_source,
+                                propensity_clip = propensity_clip,
                                 nuisance_error_rate = nuisance_error_rate,
                                 nuisance_error_scale = nuisance_error_scale,
                                 nuisance_error_sign = nuisance_error_sign),
@@ -318,6 +338,9 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                 "the three fitting stages are separated by cyclic rotation;",
                 "plug-in intervals condition on fitted nuisances."),
               call = match.call())
+  joint <- l2_joint_covariance(out$scores)
+  out$influence_covariance <- joint$influence
+  out$estimate_covariance <- joint$estimate
   class(out) <- "jointbounds_l2_sharp_cf"
   if (isTRUE(diagnostic_control$warn))
     l2_warn_diagnostics(diagnostic_summary, "Cross-fitted sharp-bound")
@@ -354,10 +377,12 @@ l2_learner_predict <- function(y, xtrain, xnew, family, method, library) {
 }
 
 l2_split_nuisance <- function(data, Y, A, C, X, tr, te, method,
-                              lib_e, lib_r, lib_y) {
+                              lib_e, lib_r, lib_y, propensity_clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
   xt <- data[tr, X, drop = FALSE]; xa <- data[, X, drop = FALSE]
   e1 <- l2_learner_predict(data[[A]][tr], xt, xa, "binomial", method, lib_e)
-  out <- list(e0 = clip_probs(1 - e1, 1e-4), e1 = clip_probs(e1, 1e-4))
+  out <- list(e0 = clip_probs(1 - e1, propensity_clip),
+              e1 = clip_probs(e1, propensity_clip))
   for (a in 0:1) {
     ia <- tr & data[[A]] == a
     rho <- l2_learner_predict(as.numeric(data[[C]][ia] == 0),
@@ -371,7 +396,9 @@ l2_split_nuisance <- function(data, Y, A, C, X, tr, te, method,
   list(train = lapply(out, `[`, tr), test = lapply(out, `[`, te))
 }
 
-l2_split_nuisance_oracle_error <- function(data, X, tr, te, rate, scale, sign) {
+l2_split_nuisance_oracle_error <- function(data, X, tr, te, rate, scale, sign,
+                                           propensity_clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
   needed <- c("p_A1_given_X", "p_C0_given_X", "p_C1_given_X",
               "mu_Y0_given_XC0", "mu_Y1_given_XC0")
   if (!all(needed %in% names(data)))
@@ -396,7 +423,8 @@ l2_split_nuisance_oracle_error <- function(data, X, tr, te, rate, scale, sign) {
   logit <- function(p) stats::qlogis(clip_probs(p, 1e-5))
   e1 <- stats::plogis(logit(data$p_A1_given_X) +
     sign[["e"]] * scale[["e"]] * mag * smooth_error(1))
-  out <- list(e0 = clip_probs(1 - e1, 1e-4), e1 = clip_probs(e1, 1e-4))
+  out <- list(e0 = clip_probs(1 - e1, propensity_clip),
+              e1 = clip_probs(e1, propensity_clip))
   for (a in 0:1) {
     rho0 <- 1 - data[[paste0("p_C", a, "_given_X")]]
     rho <- stats::plogis(logit(rho0) +
@@ -572,7 +600,9 @@ l2_dual_evaluate <- function(y, A, C, a, nuisance, B, delta, par, sigma,
 #' @param dgp_args Named list of additional arguments passed to
 #'   `simulate_l2_data()`, such as informative-missingness strength, overlap,
 #'   covariate complexity, or the outcome distribution.
-#' @param ... Arguments passed to `l2_sharp_crossfit()`.
+#' @param ... Arguments passed to the selected cross-fitted estimators.
+#'   `moment_strategy` is passed only to `l2_cs_crossfit()`; sharp-only
+#'   optimizer arguments are not passed to the CS estimator.
 #' @return Replication-level results, endpoint bias/coverage summaries, the
 #'   reference endpoints, and bound coverage of the simulated true ATE.
 #' @export
@@ -681,8 +711,11 @@ l2_compare_dr_plugin <- function(B = 200L, n = 1000L,
                    X = c("X1", "X2"), seed = seed + b,
                    conf_level = conf_level), dots)
     fits <- list()
-    if (l2_method %in% c("sharp", "both"))
-      fits$sharp <- try(do.call(l2_sharp_crossfit, args), silent = TRUE)
+    if (l2_method %in% c("sharp", "both")) {
+      sharp_args <- args
+      sharp_args$moment_strategy <- NULL
+      fits$sharp <- try(do.call(l2_sharp_crossfit, sharp_args), silent = TRUE)
+    }
     if (l2_method %in% c("cs", "both")) {
       cs_args <- args
       cs_args[c("basis", "control", "boundary_tol", "diagnostic_control")] <- NULL
@@ -1055,4 +1088,11 @@ l2_oracle_sharp_reference <- function(data, delta, delta_R, delta_A,
     upper = vapply(arm, `[[`, numeric(1), "upper"))
   list(arm = arm_df, ate = data.frame(method = "oracle_sharp_sieve",
     lower = ate[["lower"]], upper = ate[["upper"]]))
+}
+
+# Shared validation also protects internal simulation helper calls.
+l2_validate_propensity_clip <- function(x) {
+  if (!is.numeric(x) || length(x) != 1L || !is.finite(x) || x <= 0 || x >= .5)
+    stop("propensity_clip must be a finite scalar strictly between 0 and 0.5")
+  invisible(x)
 }
