@@ -63,6 +63,11 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   set.seed(seed)
   fold_id <- if (controlled_error) rep(1L, n) else
     sample(rep(seq_len(folds), length.out = n))
+  zero_ref <- !controlled_error && all(delta_A == 0) &&
+    all((if (model == "net") delta_M else delta_R) == 0)
+  ref_strategy <- moment_strategy
+  if (zero_ref) ref_splits <- l2_reference_splits(data,Y,A,C,X,fold_id,
+    ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed)
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   has_oracle <- all(c("p_A1_given_X", "p_C0_given_X", "p_C1_given_X",
     "mu_Y0_given_XC0", "mu_Y1_given_XC0", "mu_Y0", "mu_Y1", "X1",
@@ -92,7 +97,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
         }
       }
       nonfit <- if (controlled_error || moment_strategy == "shared_training") te else !tr
-      ns <- if (nuisance_source == "oracle_error")
+      ns <- if (zero_ref) ref_splits[[v]] else if (nuisance_source == "oracle_error")
         l2_split_nuisance_oracle_error(data, X, tr, te,
           nuisance_error_rate, nuisance_error_scale, nuisance_error_sign,
           propensity_clip = propensity_clip) else
@@ -273,6 +278,18 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   joint <- l2_joint_covariance(out$scores)
   out$influence_covariance <- joint$influence
   out$estimate_covariance <- joint$estimate
+  if (zero_ref) out$benchmark_reference <- c(
+    l2_reference_scores(data,Y,A,C,fold_id,ref_splits),
+    list(signature=l2_reference_signature(data,Y,A,C,X), fold_id=fold_id,
+         strategy=ref_strategy, method=nuisance_method, seed=seed,
+         clip=propensity_clip, lib_e=sl_lib_prop, lib_r=sl_lib_miss, lib_y=sl_lib_outcome))
+  if (zero_ref) {
+    rr <- out$benchmark_reference
+    rr$estimates["aipw"] <- out$ate$estimate[out$ate$estimator=="eif" & out$ate$endpoint=="lower"]
+    rr$centered <- list(plugin=rr$scores$plugin-rr$estimates[["plugin"]],
+                        aipw=out$scores$eif_lower)
+    out$benchmark_reference <- rr
+  }
   class(out) <- c("jointbounds_l2_cs_cf", "list")
   out
 }

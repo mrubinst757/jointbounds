@@ -9,7 +9,9 @@ l2_aipw_benchmarks(
   conf_level = 0.95, folds = 5L,
   nuisance_method = c("SuperLearner", "glm"),
   sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm", seed = 1L
+  sl_lib_outcome = "SL.glm", seed = 1L, reference_fit = NULL,
+  reference_strategy = c("three_way", "shared_training", "legacy"),
+  propensity_clip = 1e-4
 )
 }
 \arguments{
@@ -26,6 +28,9 @@ l2_aipw_benchmarks(
   \item{folds}{Number of cross-fitting folds.}
   \item{nuisance_method}{Nuisance-estimation method.}
   \item{sl_lib_prop, sl_lib_miss, sl_lib_outcome}{SuperLearner libraries.}
+  \item{reference_fit}{Optional zero-radius sharp or CS fit, or a sensitivity band with that fit retained. Reuses the exact full-X AIPW estimate and scores. Reduced fits inherit its folds, training strategy, learner settings, fitting seed and clipping. The analysis columns and observation order must match. Refit objects saved before version 0.4.2.}
+  \item{reference_strategy}{Without a supplied fit, use the same rotating three-stage training as the default bound estimators, shared training for two-stage CS, or legacy benchmark fitting.}
+  \item{propensity_clip}{Estimated treatment probability clipping threshold. Inherited from a supplied fit.}
   \item{seed}{Random seed.}
 }
 \description{Compares the full-X and reduced-Z ATEs for many retained

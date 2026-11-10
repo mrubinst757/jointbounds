@@ -1,6 +1,6 @@
 Package: jointbounds
 Title: Bounds on Causal Effects with Mixed Informative and Non-Informative Missingness
-Version: 0.4.1
+Version: 0.4.2
 Authors@R: c(
     person("Max", "Rubinstein", email = "mrubinstein@rand.org", role = c("aut", "cre")),
     person("Denis", "Agniel", email = "dagniel@rand.org", role = "aut")
@@ -32,6 +32,7 @@ URL: https://github.com/mrubinst757/jointbounds
 BugReports: https://github.com/mrubinst757/jointbounds/issues
 Encoding: UTF-8
 Imports:
+  digest,
   SuperLearner,
   graphics,
   stats,

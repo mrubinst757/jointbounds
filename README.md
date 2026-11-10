@@ -430,3 +430,11 @@ remain necessary. Use `moment_strategy = "shared_training"` to reproduce
 learned-nuisance results from version 0.4.0; that approach needs additional
 stability assumptions because the residuals are constructed in sample.
 Controlled `nuisance_source = "oracle_error"` simulations are unchanged.
+
+For an existing sensitivity surface containing the zero-radius pair, retain fits
+with `keep_fits = TRUE` and pass `reference_fit = fit` to
+`l2_aipw_benchmarks()`. This reuses the exact full-X AIPW estimate and scores;
+the reduced analyses inherit its training folds and learner settings. Use
+`variance = TRUE` for calibration bands. Without a supplied fit, match data,
+seed, folds, libraries and propensity clipping to reproduce the default
+three-stage zero-radius analysis. Earlier saved surfaces need one refit.

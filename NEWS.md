@@ -1,3 +1,11 @@
+# jointbounds 0.4.2
+
+- Full and reduced AIPW benchmarks now use the same rotating training folds
+  and structural prediction routine as zero-radius one-step bounds by default.
+  Pass `reference_fit = fit` to reuse an existing reference exactly, including
+  its paired scores and learner settings. Old benchmark fits can be reproduced
+  with `reference_strategy = "legacy"`.
+
 # jointbounds 0.4.1
 
 - CS residual-moment estimation now defaults to rotating three-stage splitting,

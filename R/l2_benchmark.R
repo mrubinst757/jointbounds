@@ -21,6 +21,9 @@ utils::globalVariables(c(".radius_x", "estimate", "simultaneous_low",
 #' @param subset_selection Reproducible random sampling or lexicographic first
 #'   subsets when the number of combinations exceeds max_per_pz.
 #' @param estimator Return AIPW, plug-in, or both.
+#' @param reference_fit Optional zero-radius fit, or sensitivity band retaining that fit. Reuses full-X predictions, scores, folds, learner settings, and clipping. Requires version 0.4.2 or later and identical ordered analysis data.
+#' @param reference_strategy Without a supplied fit, use rotating three-stage training by default, shared training for a two-stage CS analysis, or legacy benchmark fitting.
+#' @param propensity_clip Estimated treatment probability clipping threshold, inherited when a fit is supplied.
 #' @param variance Include paired influence-score standard errors and intervals.
 #' @inheritParams l2_bounds
 #' @return An object of class jointbounds_l2_benchmarks with a results data frame,
@@ -38,7 +41,10 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
                                nuisance_method = c("SuperLearner", "glm"),
                                sl_lib_prop = "SL.glm",
                                sl_lib_miss = "SL.glm",
-                               sl_lib_outcome = "SL.glm", seed = 1L) {
+                               sl_lib_outcome = "SL.glm", seed = 1L,
+                               reference_fit = NULL,
+                               reference_strategy = c("three_way", "shared_training", "legacy"),
+                               propensity_clip = 1e-4) {
   subset_selection <- match.arg(subset_selection)
   estimator <- match.arg(estimator); nuisance_method <- match.arg(nuisance_method)
   if (!all(c(Y, A, C, X) %in% names(data))) stop("Y, A, C, and X must exist")
@@ -67,19 +73,45 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
   if (is.null(labels)) labels <- rep("", length(subsets))
   for (j in seq_along(subsets)) if (!nzchar(labels[j])) labels[j] <-
     if (length(subsets[[j]])) paste(subsets[[j]], collapse = "+") else "(intercept)"
-  full <- l2_benchmark_ate_fit(data, Y, A, C, X, folds, nuisance_method,
-    sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed)
+  reference_strategy <- match.arg(reference_strategy)
+  if (!is.null(reference_fit)) {
+    full <- l2_get_reference(reference_fit, l2_reference_signature(data,Y,A,C,X))
+    id <- full$fold_id; reference_strategy <- full$strategy
+    nuisance_method <- full$method; seed <- full$seed; propensity_clip <- full$clip
+    sl_lib_prop <- full$lib_e; sl_lib_miss <- full$lib_r; sl_lib_outcome <- full$lib_y
+  } else if (reference_strategy != "legacy") {
+    min_folds <- if (reference_strategy == "three_way") 3L else 2L
+    if (nrow(data) < min_folds) stop("Too few observations for the requested reference strategy")
+    set.seed(seed)
+    id <- sample(rep(seq_len(max(min_folds,min(as.integer(folds),nrow(data)))),length.out=nrow(data)))
+  } else {
+    id <- NULL
+    if (propensity_clip != 1e-4) stop("Legacy strategy uses fixed clipping at 1e-4")
+  }
+  fit_set <- function(Z) {
+    if (reference_strategy == "legacy") return(l2_benchmark_ate_fit(data,Y,A,C,Z,
+      folds,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,seed))
+    splits <- l2_reference_splits(data,Y,A,C,Z,id,reference_strategy,
+      nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed)
+    l2_reference_scores(data,Y,A,C,id,splits)
+  }
+  if (is.null(reference_fit)) full <- fit_set(X)
+  centered <- function(z) {
+    if (!is.null(z$centered)) return(z$centered)
+    lapply(z$scores, function(sc) sc-mean(sc))
+  }
+  full_if <- centered(full)
   methods <- if (estimator == "both") c("plugin", "aipw") else estimator
   rows <- list(); scores <- list(); target_scores <- list(); h <- 0L
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   for (j in seq_along(subsets)) {
-    red <- l2_benchmark_ate_fit(data, Y, A, C, subsets[[j]], folds,
-      nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed)
+    red <- if (identical(subsets[[j]],X)) full else fit_set(subsets[[j]])
+    red_if <- centered(red)
     omitted <- setdiff(X, subsets[[j]])
     for (meth in methods) {
-      h <- h + 1L; sc <- red$scores[[meth]] - full$scores[[meth]]
-      est <- mean(sc); se <- if (variance) stats::sd(sc) / sqrt(nrow(data)) else NA_real_
-      full_est <- mean(full$scores[[meth]])
+      h <- h + 1L; sc <- red_if[[meth]] - full_if[[meth]]
+      est <- red$estimates[[meth]] - full$estimates[[meth]]; se <- if (variance) stats::sd(sc) / sqrt(nrow(data)) else NA_real_
+      full_est <- full$estimates[[meth]]
       full_se <- if (variance) stats::sd(full$scores[[meth]]) / sqrt(nrow(data)) else NA_real_
       rows[[h]] <- data.frame(benchmark_id = j, label = labels[j],
         p_z = length(subsets[[j]]), retained = paste(subsets[[j]], collapse = ","),
@@ -88,7 +120,7 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
         full_estimate = full_est, full_se = full_se,
         full_conf_low = if (variance) full_est - zcrit * full_se else NA_real_,
         full_conf_high = if (variance) full_est + zcrit * full_se else NA_real_,
-        reduced_estimate = mean(red$scores[[meth]]), delta_bench = est,
+        reduced_estimate = red$estimates[[meth]], delta_bench = est,
         se = se, conf_low = if (variance) est - zcrit * se else NA_real_,
         conf_high = if (variance) est + zcrit * se else NA_real_,
         se_type = if (meth == "aipw") "paired EIF" else
@@ -96,17 +128,17 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
         stringsAsFactors = FALSE)
       if (variance) {
         key <- paste(j, meth, sep = "_")
-        scores[[key]] <- sc - est
-        target_scores[[key]] <- red$scores[[meth]] - mean(red$scores[[meth]])
+        scores[[key]] <- sc
+        target_scores[[key]] <- red_if[[meth]]
       }
     }
   }
   out <- list(results = do.call(rbind, rows), subsets = subsets,
     scores = scores, target_scores = target_scores,
-    full_scores = if (variance) lapply(full$scores,
-      function(z) z - mean(z)) else list(),
+    full_scores = if (variance) full_if else list(),
     full = full$estimates,
-    metadata = list(X = X, max_per_pz = max_per_pz,
+    metadata = list(X = X, fold_id = id, reference_strategy = reference_strategy,
+      reused_reference = !is.null(reference_fit), max_per_pz = max_per_pz,
       subset_selection = subset_selection, variance = variance), call = match.call())
   class(out) <- "jointbounds_l2_benchmarks"
   out

@@ -82,6 +82,11 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
   set.seed(seed)
   fold_id <- if (controlled_error) rep(1L, n) else
     sample(rep(seq_len(folds), length.out = n))
+  zero_ref <- !controlled_error && all(delta_A == 0) &&
+    all((if (model == "net") delta_M else delta_R) == 0)
+  ref_strategy <- "three_way"
+  if (zero_ref) ref_splits <- l2_reference_splits(data,Y,A,C,X,fold_id,
+    ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed)
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   arm_ep <- vector("list", 4L); scores <- vector("list", 4L)
   diags <- list()
@@ -119,7 +124,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
         regression = lapply(z$test, `[`, reg_pos),
         test = lapply(z$test, `[`, te_pos)
       )
-      ns <- if (nuisance_source == "oracle_error")
+      ns <- if (zero_ref) ref_splits[[v]] else if (nuisance_source == "oracle_error")
         l2_split_nuisance_oracle_error(data, X, tr, nonfit,
           nuisance_error_rate, nuisance_error_scale, nuisance_error_sign,
           propensity_clip = propensity_clip)
@@ -341,6 +346,18 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
   joint <- l2_joint_covariance(out$scores)
   out$influence_covariance <- joint$influence
   out$estimate_covariance <- joint$estimate
+  if (zero_ref) out$benchmark_reference <- c(
+    l2_reference_scores(data,Y,A,C,fold_id,ref_splits),
+    list(signature=l2_reference_signature(data,Y,A,C,X), fold_id=fold_id,
+         strategy=ref_strategy, method=nuisance_method, seed=seed,
+         clip=propensity_clip, lib_e=sl_lib_prop, lib_r=sl_lib_miss, lib_y=sl_lib_outcome))
+  if (zero_ref) {
+    rr <- out$benchmark_reference
+    rr$estimates["aipw"] <- out$ate$estimate[out$ate$estimator=="dr" & out$ate$endpoint=="lower"]
+    rr$centered <- list(plugin=rr$scores$plugin-rr$estimates[["plugin"]],
+                        aipw=out$scores$dr_lower)
+    out$benchmark_reference <- rr
+  }
   class(out) <- "jointbounds_l2_sharp_cf"
   if (isTRUE(diagnostic_control$warn))
     l2_warn_diagnostics(diagnostic_summary, "Cross-fitted sharp-bound")
@@ -361,7 +378,7 @@ l2_basis_split <- function(data, X, basis, tr, te) {
 l2_learner_predict <- function(y, xtrain, xnew, family, method, library) {
   fallback <- mean(y, na.rm = TRUE)
   if (!is.finite(fallback)) fallback <- 0
-  if (length(y) < 5L || (family == "binomial" && length(unique(y)) < 2L))
+  if (!ncol(xtrain) || length(y) < 5L || (family == "binomial" && length(unique(y)) < 2L))
     return(rep(fallback, nrow(xnew)))
   if (method == "SuperLearner") {
     fit <- try(SuperLearner::SuperLearner(Y = y, X = as.data.frame(xtrain),
