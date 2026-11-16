@@ -1,3 +1,9 @@
+# jointbounds 0.4.5
+
+- Added `l2_initial_fit()` for a reusable AIPW reference and structural nuisance cache, with estimate, CI, influence scores, held-out predictions and fold roles.
+- Sharp/CS estimators and sensitivity bands accept `nuisance_fit`; benchmarks accept the initial object through `reference_fit`. Data/order and strategy checks prevent incompatible reuse.
+- Radius-specific optimization and pseudo-outcome regressions remain separate; reduced-set benchmarks share the fold scheme and settings but refit their own models.
+
 # jointbounds 0.4.4
 
 - Added `response_clip` and shared `clip` arguments to L2 and AIPW estimators and wrappers. Explicit treatment/response overrides take precedence; existing defaults are preserved.

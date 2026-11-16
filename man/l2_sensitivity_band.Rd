@@ -20,10 +20,11 @@ l2_sensitivity_band(
   multiplier = c("rademacher", "normal"),
   seed = 1L,
   keep_fits = FALSE,
-  ...
+  nuisance_fit = NULL, ...
 )
 }
 \arguments{
+\item{nuisance_fit}{Reusable output from \code{l2_initial_fit()}. Supplies cached structural predictions, folds, seed, learners, and clipping, overriding downstream settings for these. Requires the same ordered data. Sharp estimation requires the three-way strategy. Dual fitting and pseudo-outcome regressions still run separately.}
 \item{data}{A data frame.}
 
 \item{Y, A, C}{Column names. `A` and `C` are binary; `C = 1` means missing.}

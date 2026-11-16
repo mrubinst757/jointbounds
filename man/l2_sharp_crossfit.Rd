@@ -8,9 +8,10 @@ l2_sharp_crossfit (data, Y, A, C, X, delta = c(1, 1), delta_R = c(0.2, 0.2), del
     control = list(), diagnostic_control = list(), conf_level = 0.95, boundary_tol = 1e-07,
     nuisance_source = c("estimated", "oracle_error"), nuisance_error_rate = 0.25, nuisance_error_scale = 1,
     nuisance_error_sign = c(e = 1, rho = -1, regression = 1), delta_K = NULL, propensity_clip = clip,
-    sl_libs = "SL.glm", response_clip = clip, clip = 1e-04)
+    sl_libs = "SL.glm", response_clip = clip, clip = 1e-04, nuisance_fit = NULL)
 }
 \arguments{
+\item{nuisance_fit}{Reusable output from \code{l2_initial_fit()}. Supplies cached structural predictions, folds, seed, learners, and clipping, overriding downstream settings for these. Requires the same ordered data. Sharp estimation requires the three-way strategy. Dual fitting and pseudo-outcome regressions still run separately.}
 \item{clip}{Common two-sided clipping threshold, default 1e-4. Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
 \item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
 

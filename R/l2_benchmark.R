@@ -21,7 +21,7 @@ utils::globalVariables(c(".radius_x", "estimate", "simultaneous_low",
 #' @param subset_selection Reproducible random sampling or lexicographic first
 #'   subsets when the number of combinations exceeds max_per_pz.
 #' @param estimator Return AIPW, plug-in, or both.
-#' @param reference_fit Optional zero-radius fit, or sensitivity band retaining that fit. Reuses full-X predictions, scores, folds, learner settings, and clipping. Requires version 0.4.2 or later and identical ordered analysis data.
+#' @param reference_fit Optional `l2_initial_fit()` object, zero-radius fit, or sensitivity band with a reusable reference. Reuses full-X predictions, scores, folds, learner settings, and clipping. Requires version 0.4.2 or later and identical ordered analysis data.
 #' @param reference_strategy Without a supplied fit, use rotating three-stage training by default, shared training for a two-stage CS analysis, or legacy benchmark fitting.
 #' @param variance Include paired influence-score standard errors and intervals.
 #' @inheritParams l2_bounds

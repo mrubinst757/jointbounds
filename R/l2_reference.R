@@ -40,13 +40,16 @@ l2_reference_scores <- function(data, Y, A, C, id, splits) {
 }
 
 l2_get_reference <- function(fit, signature) {
-  if (inherits(fit,"jointbounds_l2_sensitivity_band")) {
+  if (inherits(fit,"jointbounds_l2_sensitivity_band") && is.null(fit$benchmark_reference)) {
     ii <- which(vapply(fit$fits, function(z) !is.null(z$benchmark_reference), logical(1)))
-    if (length(ii) != 1L) stop("Expected one retained zero-radius fit; use keep_fits=TRUE and include (0,0)")
-    fit <- fit$fits[[ii]]
+    if (!length(ii)) stop("No reusable reference found; retain fits and include (0,0), or supply nuisance_fit")
+    refs <- lapply(fit$fits[ii], `[[`, "benchmark_reference")
+    if (!all(vapply(refs, function(z) identical(z,refs[[1L]]), logical(1))))
+      stop("Surface contains different references; supply the intended initial or zero-radius fit directly")
+    fit <- fit$fits[[ii[1L]]]
   }
   ref <- fit$benchmark_reference
-  if (is.null(ref)) stop("A zero-radius estimated-nuisance fit made with jointbounds >= 0.4.2 is required")
+  if (is.null(ref)) stop("An l2_initial_fit() object or a fitted reusable benchmark reference is required")
   if (!identical(ref$signature, signature)) stop("Reference data, column names or observation order do not match")
   ref
 }

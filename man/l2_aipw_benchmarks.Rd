@@ -27,7 +27,7 @@ l2_aipw_benchmarks (data, Y, A, C, X, p_z = NULL, max_per_pz = 10L, subsets = NU
   \item{folds}{Number of cross-fitting folds.}
   \item{nuisance_method}{Nuisance-estimation method.}
   \item{sl_lib_prop, sl_lib_miss, sl_lib_outcome}{SuperLearner libraries.}
-  \item{reference_fit}{Optional zero-radius sharp or CS fit, or a sensitivity band with that fit retained. Reuses the exact full-X AIPW estimate and scores. Reduced fits inherit its folds, training strategy, learner settings, fitting seed and clipping. The analysis columns and observation order must match. Refit objects saved before version 0.4.2.}
+  \item{reference_fit}{An \code{l2_initial_fit()} object may be supplied directly. Optional zero-radius sharp or CS fit, or a sensitivity band with that fit retained. Reuses the exact full-X AIPW estimate and scores. Reduced fits inherit its folds, training strategy, learner settings, fitting seed and clipping. The analysis columns and observation order must match. Refit objects saved before version 0.4.2.}
   \item{reference_strategy}{Without a supplied fit, use the same rotating three-stage training as the default bound estimators, shared training for two-stage CS, or legacy benchmark fitting.}
 
   \item{seed}{Random seed.}

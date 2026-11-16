@@ -498,3 +498,36 @@ between zero and 0.5. Clipping removes no observations. It stabilizes inverse
 weights but may introduce bias when true probabilities fall outside the selected
 interval. `reference_fit` reuse inherits both thresholds, keeping full and reduced
 benchmark fits consistent. Older reference objects used response clipping at 1e-4.
+
+
+### Start with one reusable AIPW fit
+
+```r
+initial <- l2_initial_fit(dat, Y = y, A = a, C = ".missing", X = x,
+  folds = 5, sl_libs = c("SL.glm", "SL.mean"), clip = .01, seed = 42)
+initial$ate                         # AIPW estimate, SE, and confidence interval
+initial$influence_function$ate      # centered AIPW scores
+initial$nuisance                    # held-out e0, e1, rho0, rho1, mu0, mu1
+
+fit <- l2_sensitivity_band(dat, Y = y, A = a, C = ".missing", X = x,
+  grid = grid, bound_method = "sharp", nuisance_fit = initial,
+  keep_fits = TRUE, B = 1000)
+bench <- l2_aipw_benchmarks(dat, Y = y, A = a, C = ".missing", X = x,
+  subsets = list(omit_age = setdiff(x, "age")), variance = TRUE,
+  reference_fit = initial)
+cal <- l2_calibration_band(fit, bench)
+tip <- l2_tipping_band(fit)
+```
+
+The initial object caches structural predictions for every fold role. Supplying
+it reuses these predictions at every radius, arm and endpoint; no full-X
+structural model is refitted. Its folds, seed, learners, and clipping supersede
+those settings in downstream calls. Radius-specific dual optimization and
+pseudo-outcome regressions still run, and reduced-covariate benchmark models
+must still be fitted. The same ordered data and covariate list are required.
+
+The default three-way strategy supports both sharp and CS estimation. An initial
+fit with `strategy = "shared_training"` supports CS only. This is distinct from
+ordinary two-stage `generate_ate()` output, which cannot be used as this cache.
+The initial fit and its predictions can be saved with `saveRDS()` and reloaded
+with `readRDS()` for later use with identical analysis data.

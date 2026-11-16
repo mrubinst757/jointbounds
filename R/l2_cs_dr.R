@@ -29,6 +29,9 @@
 #' @param propensity_clip,response_clip Override `clip` for treatment and
 #'   response probabilities, respectively. Thresholds must lie strictly between
 #'   zero and one half. Reference fits supply both thresholds when reused.
+#' @param nuisance_fit Optional reusable output from `l2_initial_fit()`.
+#'   Supplies cached structural predictions, folds, seed, learners, and clipping.
+#'   Requires identical ordered data; overrides these fitting settings.
 #' @export
 l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            delta_R = c(.2, .2), delta_A = c(.2, .2),
@@ -45,13 +48,27 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            nuisance_error_sign = c(e = 1, rho = -1,
                                                    regression = 1),
                            delta_K = NULL, propensity_clip = clip,
-                           moment_strategy = c("three_way", "shared_training"), sl_libs = "SL.glm", response_clip = clip, clip = 1e-4) {
+                           moment_strategy = c("three_way", "shared_training"), sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL) {
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
+  strategy_supplied <- !missing(moment_strategy)
   moment_strategy <- match.arg(moment_strategy)
   nuisance_method <- match.arg(nuisance_method)
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
+  cache <- NULL
+  if (!is.null(nuisance_fit)) {
+    if (nuisance_source != "estimated") stop("nuisance_fit cannot be used with oracle_error")
+    cache <- l2_cached_reference(nuisance_fit,data,Y,A,C,X)
+    folds <- max(cache$fold_id); seed <- cache$seed
+    nuisance_method <- cache$method
+    sl_lib_prop <- cache$lib_e; sl_lib_miss <- cache$lib_r; sl_lib_outcome <- cache$lib_y
+    propensity_clip <- cache$clip; response_clip <- cache$response_clip
+    if (strategy_supplied && moment_strategy != cache$strategy)
+      stop("moment_strategy must match the initial fit")
+    moment_strategy <- cache$strategy
+  }
+
   if (length(conf_level) != 1L || !is.finite(conf_level) ||
       conf_level <= 0 || conf_level >= 1)
     stop("conf_level must lie strictly between zero and one")
@@ -73,10 +90,12 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   set.seed(seed)
   fold_id <- if (controlled_error) rep(1L, n) else
     sample(rep(seq_len(folds), length.out = n))
+  if (!is.null(cache)) fold_id <- cache$fold_id
   zero_ref <- !controlled_error && all(delta_A == 0) &&
     all((if (model == "net") delta_M else delta_R) == 0)
   ref_strategy <- moment_strategy
-  if (zero_ref) ref_splits <- l2_reference_splits(data,Y,A,C,X,fold_id,
+  if (!is.null(cache)) ref_splits <- cache$splits
+  else if (zero_ref) ref_splits <- l2_reference_splits(data,Y,A,C,X,fold_id,
     ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip = response_clip)
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   has_oracle <- all(c("p_A1_given_X", "p_C0_given_X", "p_C1_given_X",
@@ -107,7 +126,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
         }
       }
       nonfit <- if (controlled_error || moment_strategy == "shared_training") te else !tr
-      ns <- if (zero_ref) ref_splits[[v]] else if (nuisance_source == "oracle_error")
+      ns <- if (zero_ref || !is.null(cache)) ref_splits[[v]] else if (nuisance_source == "oracle_error")
         l2_split_nuisance_oracle_error(data, X, tr, te,
           nuisance_error_rate, nuisance_error_scale, nuisance_error_sign,
           propensity_clip = propensity_clip, response_clip = response_clip) else
@@ -285,6 +304,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
          "for first-order nuisance-estimation error."),
        call = match.call())
   out$moment_diagnostics <- do.call(rbind, regularity)
+  out$reused_nuisance_fit <- !is.null(cache)
   joint <- l2_joint_covariance(out$scores)
   out$influence_covariance <- joint$influence
   out$estimate_covariance <- joint$estimate
@@ -300,6 +320,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                         aipw=out$scores$eif_lower)
     out$benchmark_reference <- rr
   }
+  if (!is.null(cache)) out$benchmark_reference <- nuisance_fit$benchmark_reference
   class(out) <- c("jointbounds_l2_cs_cf", "list")
   out
 }

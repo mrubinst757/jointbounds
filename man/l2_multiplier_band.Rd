@@ -12,7 +12,7 @@ l2_sensitivity_band(
   model = c("net", "separated"), bound_method = c("cs", "sharp"),
   estimator = NULL, B = 1000L, conf_level = 0.95,
   multiplier = c("rademacher", "normal"), seed = 1L,
-  keep_fits = FALSE, ...
+  keep_fits = FALSE, nuisance_fit = NULL, ...
 )
 }
 \arguments{
@@ -27,6 +27,7 @@ l2_sensitivity_band(
   \item{grid}{Sensitivity-parameter grid.}
   \item{bound_method}{CS or sharp cross-fitted endpoints.}
   \item{keep_fits}{Retain all pointwise fits.}
+  \item{nuisance_fit}{Optional reusable structural nuisance cache from \code{l2_initial_fit()}.}
   \item{...}{Arguments passed to the selected cross-fitted estimator.}
 }
 \value{Pointwise and simultaneous endpoint intervals, outward identified-set

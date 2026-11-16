@@ -124,6 +124,8 @@ l2_multiplier_band <- function(fits, estimator = NULL, B = 1000L,
 #' @param conf_level Simultaneous confidence level.
 #' @param multiplier Multiplier distribution.
 #' @param keep_fits Retain the potentially large list of pointwise fits.
+#' @param nuisance_fit Optional `l2_initial_fit()` object; reuses structural
+#'   predictions and fold settings at every grid point.
 #' @param ... Additional arguments passed to `l2_cs_crossfit()` or
 #'   `l2_sharp_crossfit()`. For example, `sl_libs` supplies a common learner
 #'   library, model-specific library arguments override it, and `basis` sets
@@ -138,7 +140,7 @@ l2_sensitivity_band <- function(data, Y, A, C, X, grid,
                                 estimator = NULL, B = 1000L,
                                 conf_level = .95,
                                 multiplier = c("rademacher", "normal"),
-                                seed = 1L, keep_fits = FALSE, ...) {
+                                seed = 1L, keep_fits = FALSE, nuisance_fit = NULL, ...) {
   model <- match.arg(model); bound_method <- match.arg(bound_method)
   multiplier <- match.arg(multiplier)
   if (!is.data.frame(grid) || !nrow(grid))
@@ -167,7 +169,7 @@ l2_sensitivity_band <- function(data, Y, A, C, X, grid,
     mm <- pair(row, "delta_M", rr)
     args <- merge_args(list(data = data, Y = Y, A = A, C = C, X = X,
       delta = dd, delta_R = rr, delta_A = aa, delta_M = mm,
-      model = model, seed = seed, conf_level = conf_level), dots)
+      model = model, seed = seed, conf_level = conf_level, nuisance_fit = nuisance_fit), dots)
     fits[[i]] <- if (bound_method == "cs")
       do.call(l2_cs_crossfit, args) else do.call(l2_sharp_crossfit, args)
   }
@@ -178,6 +180,8 @@ l2_sensitivity_band <- function(data, Y, A, C, X, grid,
   out$results <- cbind(grid[out$results$grid_id, , drop = FALSE], out$results)
   out$outward <- cbind(grid[out$outward$grid_id, , drop = FALSE], out$outward)
   out$bound_method <- bound_method; out$model <- model
+  out$reused_nuisance_fit <- !is.null(nuisance_fit)
+  if (!is.null(nuisance_fit)) out$benchmark_reference <- nuisance_fit$benchmark_reference
   if (isTRUE(keep_fits)) out$fits <- fits
   class(out) <- c("jointbounds_l2_sensitivity_band", class(out))
   out
