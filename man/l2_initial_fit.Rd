@@ -26,3 +26,23 @@ l2_initial_fit(data, Y, A, C, X, folds = 5L,
 \description{Fits structural nuisance models once per rotation and computes the AIPW estimate under MAR and no unmeasured confounding, without sensitivity optimization.}
 \value{An object with \code{ate} (estimate, SE, CI), \code{scores} (raw AIPW and plug-in scores), \code{influence_function$ate} (centered AIPW scores), \code{nuisance} (held-out predictions), \code{fold_id}, \code{crossfit_roles}, \code{parameters}, and cached \code{splits}.}
 \details{Pass as \code{nuisance_fit} to \code{l2_sharp_crossfit}, \code{l2_cs_crossfit}, or \code{l2_sensitivity_band}, and as \code{reference_fit} to \code{l2_aipw_benchmarks}. Cached settings supersede downstream fold, seed, learner, and clipping settings. The same data, columns and row order are required. Radius-specific optimization and pseudo-outcome regression still run. Reduced-covariate benchmarks fit their own models using the same fold scheme. Ordinary \code{generate_ate()} fits cannot substitute for this object.}
+
+\section{Predictor diagnostics}{
+The \code{predictor_diagnostics} table records training-set design checks,
+including context (fold, model and arm where applicable), training size,
+design rank, constant predictors, duplicate columns, and a representative
+set of linearly dependent design columns. \code{status} is \code{ok},
+\code{redundant}, or \code{unchecked}. Factor predictors are contrast-coded;
+single-observed-level factors are separately flagged. Numerical rank is
+checked after column scaling with QR tolerance 1e-7.
+
+Checks run before each nuisance fit and on the actual screened training subsets
+used by SL.glm inside SuperLearner. Sharp and CS fits include pseudo-outcome
+regressions; sensitivity-band tables include the grid index. Reused caches
+carry previously computed structural diagnostics and must be rebuilt if they
+predate this feature. Checks issue warnings but do not remove predictors or
+alter estimates. They do not establish absence of separation or reliability
+of every prediction. One possible redundant column set is reported; the choice
+can depend on column order. Older plug-in fitting paths report warnings but do
+not expose this combined table.
+}

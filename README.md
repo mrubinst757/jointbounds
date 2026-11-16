@@ -561,3 +561,32 @@ instead of replacing failed fits with marginal means.
 
 Refit initial objects made with older versions: updating the package does not
 change models that have already been cached.
+
+
+### Fold-level predictor redundancy diagnostics
+
+Before fitting each nuisance regression, the package checks its actual training
+predictors for constant columns, duplicate design columns, and numerical linear
+dependence. This includes the separate treatment-arm/observed-outcome samples
+and pseudo-outcome regressions. It also checks SL.glm's internal SuperLearner
+training subsets, where a rare category can disappear even when the outer-fold
+design has full rank. Warnings identify the model/fold and affected columns.
+
+```r
+initial$predictor_diagnostics
+subset(initial$predictor_diagnostics, status != "ok")
+# After fitting the sensitivity band:
+subset(fit$predictor_diagnostics, status != "ok")
+```
+
+Columns include `context`, `n_train`, `design_columns`, `rank`,
+`constant_predictors`, `duplicate_columns`, `dependent_columns`, and `status`.
+The sensitivity-band table also identifies `grid_id`. Benchmarks label their
+adjustment set. Refit older initial objects to obtain these diagnostics.
+
+These are checks, not automatic variable selection: predictors are not removed
+and warnings do not by themselves stop fitting. The scaled QR check uses
+numerical tolerance 1e-7 and reports one possible dependent-column set. It does
+not test separation or guarantee that every out-of-sample prediction is
+estimable. The older nuisance-fitting interfaces also emit fold-specific
+warnings, but do not return the combined table.

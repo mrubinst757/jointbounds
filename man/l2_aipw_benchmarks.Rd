@@ -41,3 +41,23 @@ reduced-target, and full-X influence scores, the full-X estimate, and
 metadata. Raw signed discrepancies and reduced-target scores are retained.
 \code{l2_calibration_band()} combines the full and reduced scores for its
 toward-zero target by default, retaining covariance with bound estimators.}
+
+\section{Predictor diagnostics}{
+The \code{predictor_diagnostics} table records training-set design checks,
+including context (fold, model and arm where applicable), training size,
+design rank, constant predictors, duplicate columns, and a representative
+set of linearly dependent design columns. \code{status} is \code{ok},
+\code{redundant}, or \code{unchecked}. Factor predictors are contrast-coded;
+single-observed-level factors are separately flagged. Numerical rank is
+checked after column scaling with QR tolerance 1e-7.
+
+Checks run before each nuisance fit and on the actual screened training subsets
+used by SL.glm inside SuperLearner. Sharp and CS fits include pseudo-outcome
+regressions; sensitivity-band tables include the grid index. Reused caches
+carry previously computed structural diagnostics and must be rebuilt if they
+predate this feature. Checks issue warnings but do not remove predictors or
+alter estimates. They do not establish absence of separation or reliability
+of every prediction. One possible redundant column set is reported; the choice
+can depend on column order. Older plug-in fitting paths report warnings but do
+not expose this combined table.
+}

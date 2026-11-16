@@ -50,3 +50,23 @@ In controlled-error mode, \eqn{e_a}, \eqn{rho_a}, \eqn{mu_a}, and the
 conditional residual moments \eqn{nu_{k,a}} receive separate errors of the
 specified order; no regressions are fitted.
 }
+
+\section{Predictor diagnostics}{
+The \code{predictor_diagnostics} table records training-set design checks,
+including context (fold, model and arm where applicable), training size,
+design rank, constant predictors, duplicate columns, and a representative
+set of linearly dependent design columns. \code{status} is \code{ok},
+\code{redundant}, or \code{unchecked}. Factor predictors are contrast-coded;
+single-observed-level factors are separately flagged. Numerical rank is
+checked after column scaling with QR tolerance 1e-7.
+
+Checks run before each nuisance fit and on the actual screened training subsets
+used by SL.glm inside SuperLearner. Sharp and CS fits include pseudo-outcome
+regressions; sensitivity-band tables include the grid index. Reused caches
+carry previously computed structural diagnostics and must be rebuilt if they
+predate this feature. Checks issue warnings but do not remove predictors or
+alter estimates. They do not establish absence of separation or reliability
+of every prediction. One possible redundant column set is reported; the choice
+can depend on column order. Older plug-in fitting paths report warnings but do
+not expose this combined table.
+}

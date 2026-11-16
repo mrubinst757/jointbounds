@@ -37,6 +37,10 @@
 #'   permits a GLM substitute and emits a warning describing the failed fit.
 #'   Reused initial fits supply their saved policy; older caches default to
 #'   error for new fits. Existing cached predictions are not recomputed.
+#' @section Predictor diagnostics:
+#'   `predictor_diagnostics` records fold/model-specific design rank, constant
+#'   predictors, duplicate columns and numerical dependencies. Checks warn
+#'   without removing predictors, including SL.glm internal training subsets.
 #' @export
 l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            delta_R = c(.2, .2), delta_A = c(.2, .2),
@@ -62,6 +66,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   nuisance_method <- match.arg(nuisance_method)
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
+  predictor_checks <- l2_predictor_sink()
   cache <- NULL
   if (!is.null(nuisance_fit)) {
     if (nuisance_source != "estimated") stop("nuisance_fit cannot be used with oracle_error")
@@ -140,6 +145,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
         l2_split_nuisance(data, Y, A, C, X, tr, nonfit, nuisance_method,
           sl_lib_prop, sl_lib_miss, sl_lib_outcome, propensity_clip = propensity_clip, response_clip = response_clip,
           learner_fallback = learner_fallback, context = paste("fold",v))
+      l2_add_predictor_table(predictor_checks,ns$predictor_diagnostics)
       if (!controlled_error) {
         if (moment_strategy == "three_way") {
           nonfit_id <- which(nonfit)
@@ -174,7 +180,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
         for (k in 2:4) nu[[paste0("nu", k)]] <- l2_pseudo_regression(
           data[reg, , drop = FALSE], X, ztr[iao]^k, iao,
           data[te, , drop = FALSE], nuisance_method, sl_lib_outcome, learner_fallback,
-          paste("CS residual moment",k,"arm",a,"fold",v))
+          paste("CS residual moment",k,"arm",a,"fold",v), predictor_checks)
       }
       b <- delta[a + 1L] * (1 - rho); q <- 1 - e
       moment_scores <- function(k, w, we, wr, nuk, nukm1,
@@ -313,6 +319,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
          "for first-order nuisance-estimation error."),
        call = match.call())
   out$moment_diagnostics <- do.call(rbind, regularity)
+  out$predictor_diagnostics <- l2_predictor_table(predictor_checks)
   out$parameters$learner_fallback <- learner_fallback
   out$reused_nuisance_fit <- !is.null(cache)
   joint <- l2_joint_covariance(out$scores)

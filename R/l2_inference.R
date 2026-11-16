@@ -134,6 +134,10 @@ l2_multiplier_band <- function(fits, estimator = NULL, B = 1000L,
 #'   `learner_fallback = "glm"` explicitly allows a warned GLM substitute
 #'   after a failed SuperLearner fit; the default is to stop.
 #' @return A multiplier-band object augmented with the sensitivity grid.
+#' @section Predictor diagnostics:
+#'   `predictor_diagnostics` records fold/model-specific design rank, constant
+#'   predictors, duplicate columns and numerical dependencies. Checks warn
+#'   without removing predictors, including SL.glm internal training subsets.
 #' @export
 l2_sensitivity_band <- function(data, Y, A, C, X, grid,
                                 delta = c(1, 1),
@@ -178,6 +182,12 @@ l2_sensitivity_band <- function(data, Y, A, C, X, grid,
   if (is.null(estimator)) estimator <- if (bound_method == "cs") "eif" else "dr"
   out <- l2_multiplier_band(fits, estimator = estimator, B = B,
     conf_level = conf_level, multiplier = multiplier, seed = seed)
+  checks <- lapply(seq_along(fits),function(i) {
+    z <- fits[[i]]$predictor_diagnostics
+    if (is.null(z) || !nrow(z)) return(NULL)
+    cbind(grid_id=i,z)
+  })
+  out$predictor_diagnostics <- do.call(rbind,checks)
   out$grid <- grid
   out$results <- cbind(grid[out$results$grid_id, , drop = FALSE], out$results)
   out$outward <- cbind(grid[out$outward$grid_id, , drop = FALSE], out$outward)

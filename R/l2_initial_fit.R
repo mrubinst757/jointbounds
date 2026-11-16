@@ -23,6 +23,10 @@
 #'   permits a GLM substitute and emits a warning describing the failed fit.
 #'   Reused initial fits supply their saved policy; older caches default to
 #'   error for new fits. Existing cached predictions are not recomputed.
+#' @section Predictor diagnostics:
+#'   `predictor_diagnostics` records fold/model-specific design rank, constant
+#'   predictors, duplicate columns and numerical dependencies. Checks warn
+#'   without removing predictors, including SL.glm internal training subsets.
 #' @export
 l2_initial_fit <- function(data, Y, A, C, X, folds = 5L,
     nuisance_method = c("SuperLearner", "glm"), sl_libs = "SL.glm",
@@ -63,6 +67,7 @@ l2_initial_fit <- function(data, Y, A, C, X, folds = 5L,
   structure(list(ate=data.frame(estimator="aipw",estimate=est,se=se,
       conf_low=est-crit*se,conf_high=est+crit*se),
     scores=ref$scores, influence_function=list(ate=ref$centered$aipw),
+    predictor_diagnostics=unique(do.call(rbind,lapply(splits, `[[`, "predictor_diagnostics"))),
     nuisance=nuisance,fold_id=id,crossfit_roles=roles,splits=splits,
     benchmark_reference=ref,conf_level=conf_level,
     parameters=list(learner_fallback=learner_fallback,folds=folds,strategy=strategy,nuisance_method=nuisance_method,

@@ -1,10 +1,14 @@
-l2_quiet_superlearner <- function(...) {
+l2_quiet_superlearner <- function(..., context = "SuperLearner nuisance regression") {
   # SuperLearner defaults to parent.frame() when resolving `All` and learner
   # wrappers.  A namespace-qualified call from jointbounds would otherwise look
   # in the jointbounds namespace and fail with "object 'All' not found".
   args <- list(...)
+  l2_predictor_check(args$X,context)
+  env <- new.env(parent=asNamespace("SuperLearner"))
+  if ("SL.glm" %in% unlist(args$SL.library)) env$SL.glm <-
+    l2_checked_glm_wrapper(get("SL.glm",env),context,NULL)
   fit <- SuperLearner::SuperLearner(
-    ..., verbose = FALSE, env = asNamespace("SuperLearner")
+    ..., verbose = FALSE, env = env
   )
   if (length(fit$SL.predict) != nrow(args$newX) || any(!is.finite(fit$SL.predict)))
     stop("SuperLearner returned invalid predictions")
@@ -93,7 +97,7 @@ estimate_nuisance <- function(X, A, C, Y,
               X = as.data.frame(Xtrain),
               newX = as.data.frame(Xeval),
               family = stats::binomial(),
-              SL.library = sl_lib_prop
+              SL.library = sl_lib_prop, context = paste("fold",v,"treatment propensity")
           )
         },
         error = function(e) {
@@ -124,7 +128,7 @@ estimate_nuisance <- function(X, A, C, Y,
               X = as.data.frame(X[ia, , drop = FALSE]),
               newX = as.data.frame(Xeval),
               family = stats::binomial(),
-              SL.library = sl_lib_miss
+              SL.library = sl_lib_miss, context = paste("fold",v,"missingness probability, arm",a)
           )
         },
         error = function(e) {
@@ -160,7 +164,7 @@ estimate_nuisance <- function(X, A, C, Y,
                 X = as.data.frame(X[ia, , drop = FALSE]),
                 newX = as.data.frame(Xeval),
                 family = family_Y_object,
-                SL.library = sl_lib_outcome
+                SL.library = sl_lib_outcome, context = paste("fold",v,"outcome regression, arm",a)
             )
           },
           error = function(e) {
@@ -202,7 +206,7 @@ estimate_nuisance <- function(X, A, C, Y,
                 X = XA_train,
                 newX = XA_eval,
                 family = family_Y_object,
-                SL.library = sl_lib_outcome
+                SL.library = sl_lib_outcome, context = paste("fold",v,"pooled outcome regression")
             )
           },
           error = function(e) {

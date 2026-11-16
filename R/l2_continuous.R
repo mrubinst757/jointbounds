@@ -618,7 +618,9 @@ l2_as_pair <- function(z, nm, upper = Inf) {
   as.numeric(z)
 }
 
-l2_fit_predict <- function(formula, family, train, test, fallback) {
+l2_fit_predict <- function(formula, family, train, test, fallback, context = "GLM nuisance regression") {
+  predictors <- all.vars(stats::delete.response(stats::terms(formula)))
+  l2_predictor_check(train[,predictors,drop=FALSE],context)
   fit <- try(stats::glm(formula, data = train, family = family), silent = TRUE)
   if (inherits(fit, "try-error")) return(rep(fallback, nrow(test)))
   pred <- try(stats::predict.glm(fit, newdata = test, type = "response"), silent = TRUE)
@@ -640,7 +642,7 @@ l2_nuisance_glm <- function(data, Y, A, C, X, folds = 5L, seed = 1L,
     tr <- data[fold != v, , drop = FALSE]
     te <- data[fold == v, , drop = FALSE]
     id <- which(fold == v)
-    e1[id] <- l2_fit_predict(f_e, stats::binomial(), tr, te, mean(tr[[A]]))
+    e1[id] <- l2_fit_predict(f_e, stats::binomial(), tr, te, mean(tr[[A]]),paste("fold",v,"treatment propensity"))
     for (a in 0:1) {
       tra <- tr[tr[[A]] == a, , drop = FALSE]
       f_r <- stats::as.formula(paste("I(1 -", C, ") ~", rhs))
@@ -648,14 +650,14 @@ l2_nuisance_glm <- function(data, Y, A, C, X, folds = 5L, seed = 1L,
       if (!is.finite(fallback_r)) fallback_r <- mean(1 - tr[[C]])
       if (!is.finite(fallback_r)) fallback_r <- .5
       rr <- l2_fit_predict(f_r, stats::binomial(), tra, te,
-                           fallback_r)
+                           fallback_r,paste("fold",v,"response probability, arm",a))
       tr_y <- tra[tra[[C]] == 0, , drop = FALSE]
       f_y <- stats::as.formula(paste(Y, "~", rhs))
       fallback_y <- mean(tr_y[[Y]], na.rm = TRUE)
       if (!is.finite(fallback_y)) fallback_y <- mean(tr[[Y]], na.rm = TRUE)
       if (!is.finite(fallback_y)) fallback_y <- 0
       yy <- l2_fit_predict(f_y, outcome_family, tr_y, te,
-                           fallback_y)
+                           fallback_y,paste("fold",v,"outcome regression, arm",a))
       if (a == 0) { rho0[id] <- rr; mu0[id] <- yy }
       else { rho1[id] <- rr; mu1[id] <- yy }
     }

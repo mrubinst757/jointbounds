@@ -43,6 +43,10 @@ utils::globalVariables(c(".radius_x", "estimate", "simultaneous_low",
 #'   permits a GLM substitute and emits a warning describing the failed fit.
 #'   Reused initial fits supply their saved policy; older caches default to
 #'   error for new fits. Existing cached predictions are not recomputed.
+#' @section Predictor diagnostics:
+#'   `predictor_diagnostics` records fold/model-specific design rank, constant
+#'   predictors, duplicate columns and numerical dependencies. Checks warn
+#'   without removing predictors, including SL.glm internal training subsets.
 #' @export
 l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
                                max_per_pz = 10L, subsets = NULL,
@@ -123,8 +127,13 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
   methods <- if (estimator == "both") c("plugin", "aipw") else estimator
   rows <- list(); scores <- list(); target_scores <- list(); h <- 0L
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
+  predictor_checks <- list()
+  if (!is.null(full$predictor_diagnostics) && nrow(full$predictor_diagnostics))
+    predictor_checks[[1L]] <- cbind(adjustment_set="full",full$predictor_diagnostics)
   for (j in seq_along(subsets)) {
     red <- if (identical(subsets[[j]],X)) full else fit_set(subsets[[j]])
+    if (!is.null(red$predictor_diagnostics) && nrow(red$predictor_diagnostics))
+      predictor_checks[[length(predictor_checks)+1L]] <- cbind(adjustment_set=labels[j],red$predictor_diagnostics)
     red_if <- centered(red)
     omitted <- setdiff(X, subsets[[j]])
     for (meth in methods) {
@@ -153,6 +162,7 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
     }
   }
   out <- list(results = do.call(rbind, rows), subsets = subsets,
+    predictor_diagnostics=do.call(rbind,predictor_checks),
     scores = scores, target_scores = target_scores,
     full_scores = if (variance) full_if else list(),
     full = full$estimates,

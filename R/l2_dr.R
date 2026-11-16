@@ -50,6 +50,10 @@
 #'   permits a GLM substitute and emits a warning describing the failed fit.
 #'   Reused initial fits supply their saved policy; older caches default to
 #'   error for new fits. Existing cached predictions are not recomputed.
+#' @section Predictor diagnostics:
+#'   `predictor_diagnostics` records fold/model-specific design rank, constant
+#'   predictors, duplicate columns and numerical dependencies. Checks warn
+#'   without removing predictors, including SL.glm internal training subsets.
 #' @export
 l2_sharp_crossfit <- function(data, Y, A, C, X,
                               delta = c(1, 1), delta_R = c(.2, .2),
@@ -75,6 +79,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
   nuisance_method <- match.arg(nuisance_method)
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
+  predictor_checks <- l2_predictor_sink()
   cache <- NULL
   if (!is.null(nuisance_fit)) {
     if (nuisance_source != "estimated") stop("nuisance_fit cannot be used with oracle_error")
@@ -159,6 +164,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
         nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome,
         propensity_clip = propensity_clip, response_clip = response_clip,
         learner_fallback = learner_fallback, context = paste("fold",v))
+      l2_add_predictor_table(predictor_checks,ns$predictor_diagnostics)
       ns <- split_nonfit(ns)
       bp0 <- l2_basis_split(data, X, basis, tr, nonfit)
       bp <- list(train = bp0$train,
@@ -218,15 +224,15 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
         mH <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$H[obs_reg], obs_reg, data[te, , drop = FALSE],
           nuisance_method, sl_lib_outcome, learner_fallback,
-          paste("sharp dual mean, arm",a,"fold",v))
+          paste("sharp dual mean, arm",a,"fold",v,"endpoint",endpoint), predictor_checks)
         de <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$d_e[obs_reg], obs_reg, data[te, , drop = FALSE],
           nuisance_method, sl_lib_outcome, learner_fallback,
-          paste("sharp propensity derivative, arm",a,"fold",v))
+          paste("sharp propensity derivative, arm",a,"fold",v,"endpoint",endpoint), predictor_checks)
         drho <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$d_rho[obs_reg], obs_reg, data[te, , drop = FALSE],
           nuisance_method, sl_lib_outcome, learner_fallback,
-          paste("sharp response derivative, arm",a,"fold",v))
+          paste("sharp response derivative, arm",a,"fold",v,"endpoint",endpoint), predictor_checks)
       }
       e <- ns$test[[paste0("e", a)]]
       rho <- ns$test[[paste0("rho", a)]]
@@ -374,6 +380,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                 "the three fitting stages are separated by cyclic rotation;",
                 "plug-in intervals condition on fitted nuisances."),
               call = match.call())
+  out$predictor_diagnostics <- l2_predictor_table(predictor_checks)
   out$parameters$learner_fallback <- learner_fallback
   out$reused_nuisance_fit <- !is.null(cache)
   joint <- l2_joint_covariance(out$scores)
@@ -425,28 +432,32 @@ l2_basis_split <- function(data, X, basis, tr, te) {
 
 # Resolve standard wrappers without attaching SuperLearner, while allowing
 # globally defined custom wrappers/screeners to override standard names.
-l2_superlearner_fit <- function(y, xtrain, xnew, family, library) {
+l2_superlearner_fit <- function(y, xtrain, xnew, family, library,
+    context = "nuisance regression", diagnostic_sink = NULL) {
   env <- new.env(parent = asNamespace("SuperLearner"))
   for (nm in unique(as.character(unlist(library))))
     if (exists(nm, envir = globalenv(), mode = "function", inherits = TRUE))
       assign(nm, get(nm, envir = globalenv(), mode = "function", inherits = TRUE), envir = env)
+  if ("SL.glm" %in% unlist(library)) env$SL.glm <-
+    l2_checked_glm_wrapper(get("SL.glm",env),context,diagnostic_sink)
   SuperLearner::SuperLearner(Y = y, X = as.data.frame(xtrain),
     newX = as.data.frame(xnew), family = family, SL.library = library, env = env,
     cvControl = list(V = min(5L, max(2L, floor(length(y) / 20)))))
 }
 
 l2_learner_predict <- function(y, xtrain, xnew, family, method, library,
-    learner_fallback = c("error", "glm"), context = "nuisance regression") {
+    learner_fallback = c("error", "glm"), context = "nuisance regression", diagnostic_sink = NULL) {
   learner_fallback <- match.arg(learner_fallback)
   fallback <- mean(y, na.rm = TRUE)
   if (!length(y) || !is.finite(fallback)) stop(context, ": no usable training outcomes", call. = FALSE)
+  l2_predictor_check(xtrain,context,diagnostic_sink)
   # An intercept-only design or constant response has a defined constant fit.
   if (!ncol(xtrain) || length(unique(y)) == 1L)
     return(rep(fallback, nrow(xnew)))
   if (method == "SuperLearner") {
     messages <- character()
     fit <- tryCatch(withCallingHandlers(
-      l2_superlearner_fit(y,xtrain,xnew,family,library),
+      l2_superlearner_fit(y,xtrain,xnew,family,library,context,diagnostic_sink),
       warning = function(w) {
         messages <<- c(messages,conditionMessage(w)); invokeRestart("muffleWarning")
       }), error = identity)
@@ -484,23 +495,25 @@ l2_learner_predict <- function(y, xtrain, xnew, family, method, library,
 
 l2_split_nuisance <- function(data, Y, A, C, X, tr, te, method,
                               lib_e, lib_r, lib_y, propensity_clip = clip, response_clip = clip, clip = 1e-4, learner_fallback = "error", context = "structural nuisance") {
+  checks <- l2_predictor_sink()
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
   xt <- data[tr, X, drop = FALSE]; xa <- data[, X, drop = FALSE]
-  e1 <- l2_learner_predict(data[[A]][tr], xt, xa, "binomial", method, lib_e, learner_fallback, paste(context,"treatment propensity"))
+  e1 <- l2_learner_predict(data[[A]][tr], xt, xa, "binomial", method, lib_e, learner_fallback, paste(context,"treatment propensity"), checks)
   out <- list(e0 = clip_probs(1 - e1, propensity_clip),
               e1 = clip_probs(e1, propensity_clip))
   for (a in 0:1) {
     ia <- tr & data[[A]] == a
     rho <- l2_learner_predict(as.numeric(data[[C]][ia] == 0),
-      data[ia, X, drop = FALSE], xa, "binomial", method, lib_r, learner_fallback, paste(context,"response probability, arm",a))
+      data[ia, X, drop = FALSE], xa, "binomial", method, lib_r, learner_fallback, paste(context,"response probability, arm",a), checks)
     iy <- ia & data[[C]] == 0
     mu <- l2_learner_predict(data[[Y]][iy], data[iy, X, drop = FALSE], xa,
-                             "gaussian", method, lib_y, learner_fallback, paste(context,"outcome regression, arm",a))
+                             "gaussian", method, lib_y, learner_fallback, paste(context,"outcome regression, arm",a), checks)
     out[[paste0("rho", a)]] <- clip_probs(rho, response_clip)
     out[[paste0("mu", a)]] <- mu
   }
-  list(train = lapply(out, `[`, tr), test = lapply(out, `[`, te))
+  list(train = lapply(out, `[`, tr), test = lapply(out, `[`, te),
+       predictor_diagnostics = l2_predictor_table(checks))
 }
 
 l2_split_nuisance_oracle_error <- function(data, X, tr, te, rate, scale, sign,
@@ -631,10 +644,10 @@ l2_oracle_dual_regressions <- function(data, a, B, delta, par, sigma,
        d_rho = weighted(ev$d_rho))
 }
 
-l2_pseudo_regression <- function(train, X, pseudo, use, test, method, library, learner_fallback = "error", context = "pseudo-outcome regression") {
+l2_pseudo_regression <- function(train, X, pseudo, use, test, method, library, learner_fallback = "error", context = "pseudo-outcome regression", diagnostic_sink = NULL) {
   ## pseudo is already restricted to use rows.
   xtr <- train[use, X, drop = FALSE]
-  l2_learner_predict(pseudo, xtr, test[, X, drop = FALSE], "gaussian", method, library, learner_fallback, context)
+  l2_learner_predict(pseudo, xtr, test[, X, drop = FALSE], "gaussian", method, library, learner_fallback, context, diagnostic_sink)
 }
 
 l2_dual_evaluate <- function(y, A, C, a, nuisance, B, delta, par, sigma,

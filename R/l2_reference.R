@@ -37,7 +37,8 @@ l2_reference_scores <- function(data, Y, A, C, id, splits) {
     }
   }
   scores <- list(plugin=plugin,aipw=aipw)
-  list(scores=scores, estimates=vapply(scores,mean,numeric(1)))
+  list(scores=scores, estimates=vapply(scores,mean,numeric(1)),
+    predictor_diagnostics=unique(do.call(rbind,lapply(splits, `[[`, "predictor_diagnostics"))))
 }
 
 l2_get_reference <- function(fit, signature) {

@@ -1,3 +1,8 @@
+# jointbounds 0.4.7
+
+- Added fold/model-specific predictor checks for constants, duplicate columns, and numerical linear dependence, including SL.glm's internal SuperLearner training subsets.
+- Initial, sharp/CS, sensitivity-band, and benchmark fits retain predictor diagnostic tables. Checks warn without silently removing variables; older cached fits need refitting to obtain diagnostics.
+
 # jointbounds 0.4.6
 
 - SuperLearner failures now stop with the original error and fold/model context. Cross-fitted interfaces support an explicit `learner_fallback = "glm"` option that warns when used; initial references retain the policy.
