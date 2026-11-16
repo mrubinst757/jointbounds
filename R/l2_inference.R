@@ -131,6 +131,8 @@ l2_multiplier_band <- function(fits, estimator = NULL, B = 1000L,
 #'   library, model-specific library arguments override it, and `basis` sets
 #'   the sharp balance formula (NULL balances covariate means). `clip` sets both
 #'   probability thresholds; `propensity_clip` and `response_clip` override it.
+#'   `learner_fallback = "glm"` explicitly allows a warned GLM substitute
+#'   after a failed SuperLearner fit; the default is to stop.
 #' @return A multiplier-band object augmented with the sensitivity grid.
 #' @export
 l2_sensitivity_band <- function(data, Y, A, C, X, grid,

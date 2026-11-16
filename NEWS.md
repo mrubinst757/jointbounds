@@ -1,3 +1,10 @@
+# jointbounds 0.4.6
+
+- SuperLearner failures now stop with the original error and fold/model context. Cross-fitted interfaces support an explicit `learner_fallback = "glm"` option that warns when used; initial references retain the policy.
+- Fixed standard learner/screener lookup without attaching SuperLearner, retained support for globally defined custom wrappers, and reject invalid prediction vectors.
+- Fixed unnamed predictor matrices in the older pooled outcome path.
+- Removed silent error-to-mean substitution in the older SuperLearner nuisance-fitting path. Existing cached fits must be rebuilt to benefit from fitting changes.
+
 # jointbounds 0.4.5
 
 - Added `l2_initial_fit()` for a reusable AIPW reference and structural nuisance cache, with estimate, CI, influence scores, held-out predictions and fold roles.

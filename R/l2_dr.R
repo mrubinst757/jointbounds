@@ -45,6 +45,11 @@
 #' @param nuisance_fit Optional reusable output from `l2_initial_fit()`.
 #'   Supplies cached structural predictions, folds, seed, learners, and clipping.
 #'   Requires identical ordered data; overrides these fitting settings.
+#' @param learner_fallback On a SuperLearner fitting or prediction failure,
+#'   stop with the original error by default (`"error"`). `"glm"` explicitly
+#'   permits a GLM substitute and emits a warning describing the failed fit.
+#'   Reused initial fits supply their saved policy; older caches default to
+#'   error for new fits. Existing cached predictions are not recomputed.
 #' @export
 l2_sharp_crossfit <- function(data, Y, A, C, X,
                               delta = c(1, 1), delta_R = c(.2, .2),
@@ -63,7 +68,8 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                               nuisance_error_scale = 1,
                               nuisance_error_sign = c(e = 1, rho = -1,
                                                       regression = 1),
-                              delta_K = NULL, propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL) {
+                              delta_K = NULL, propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL, learner_fallback = c("error", "glm")) {
+  learner_fallback <- match.arg(learner_fallback)
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
   nuisance_method <- match.arg(nuisance_method)
@@ -77,6 +83,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
     nuisance_method <- cache$method
     sl_lib_prop <- cache$lib_e; sl_lib_miss <- cache$lib_r; sl_lib_outcome <- cache$lib_y
     propensity_clip <- cache$clip; response_clip <- cache$response_clip
+    learner_fallback <- if (is.null(cache$learner_fallback)) "error" else cache$learner_fallback
     if (cache$strategy != "three_way") stop("Sharp bounds require a three_way initial fit")
   }
 
@@ -106,7 +113,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
   ref_strategy <- "three_way"
   if (!is.null(cache)) ref_splits <- cache$splits
   else if (zero_ref) ref_splits <- l2_reference_splits(data,Y,A,C,X,fold_id,
-    ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip = response_clip)
+    ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip = response_clip,learner_fallback = learner_fallback)
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   arm_ep <- vector("list", 4L); scores <- vector("list", 4L)
   diags <- list()
@@ -150,7 +157,8 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
           propensity_clip = propensity_clip, response_clip = response_clip)
       else l2_split_nuisance(data, Y, A, C, X, tr, nonfit,
         nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome,
-        propensity_clip = propensity_clip, response_clip = response_clip)
+        propensity_clip = propensity_clip, response_clip = response_clip,
+        learner_fallback = learner_fallback, context = paste("fold",v))
       ns <- split_nonfit(ns)
       bp0 <- l2_basis_split(data, X, basis, tr, nonfit)
       bp <- list(train = bp0$train,
@@ -209,13 +217,16 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
       } else {
         mH <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$H[obs_reg], obs_reg, data[te, , drop = FALSE],
-          nuisance_method, sl_lib_outcome)
+          nuisance_method, sl_lib_outcome, learner_fallback,
+          paste("sharp dual mean, arm",a,"fold",v))
         de <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$d_e[obs_reg], obs_reg, data[te, , drop = FALSE],
-          nuisance_method, sl_lib_outcome)
+          nuisance_method, sl_lib_outcome, learner_fallback,
+          paste("sharp propensity derivative, arm",a,"fold",v))
         drho <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$d_rho[obs_reg], obs_reg, data[te, , drop = FALSE],
-          nuisance_method, sl_lib_outcome)
+          nuisance_method, sl_lib_outcome, learner_fallback,
+          paste("sharp response derivative, arm",a,"fold",v))
       }
       e <- ns$test[[paste0("e", a)]]
       rho <- ns$test[[paste0("rho", a)]]
@@ -363,6 +374,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                 "the three fitting stages are separated by cyclic rotation;",
                 "plug-in intervals condition on fitted nuisances."),
               call = match.call())
+  out$parameters$learner_fallback <- learner_fallback
   out$reused_nuisance_fit <- !is.null(cache)
   joint <- l2_joint_covariance(out$scores)
   out$influence_covariance <- joint$influence
@@ -371,7 +383,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
     l2_reference_scores(data,Y,A,C,fold_id,ref_splits),
     list(signature=l2_reference_signature(data,Y,A,C,X), fold_id=fold_id,
          strategy=ref_strategy, method=nuisance_method, seed=seed,
-         clip=propensity_clip, response_clip=response_clip, lib_e=sl_lib_prop, lib_r=sl_lib_miss, lib_y=sl_lib_outcome))
+         clip=propensity_clip, response_clip=response_clip, learner_fallback=learner_fallback, lib_e=sl_lib_prop, lib_r=sl_lib_miss, lib_y=sl_lib_outcome))
   if (zero_ref) {
     rr <- out$benchmark_reference
     rr$estimates["aipw"] <- out$ate$estimate[out$ate$estimator=="dr" & out$ate$endpoint=="lower"]
@@ -411,39 +423,80 @@ l2_basis_split <- function(data, X, basis, tr, te) {
   list(train = B, test = E)
 }
 
-l2_learner_predict <- function(y, xtrain, xnew, family, method, library) {
+# Resolve standard wrappers without attaching SuperLearner, while allowing
+# globally defined custom wrappers/screeners to override standard names.
+l2_superlearner_fit <- function(y, xtrain, xnew, family, library) {
+  env <- new.env(parent = asNamespace("SuperLearner"))
+  for (nm in unique(as.character(unlist(library))))
+    if (exists(nm, envir = globalenv(), mode = "function", inherits = TRUE))
+      assign(nm, get(nm, envir = globalenv(), mode = "function", inherits = TRUE), envir = env)
+  SuperLearner::SuperLearner(Y = y, X = as.data.frame(xtrain),
+    newX = as.data.frame(xnew), family = family, SL.library = library, env = env,
+    cvControl = list(V = min(5L, max(2L, floor(length(y) / 20)))))
+}
+
+l2_learner_predict <- function(y, xtrain, xnew, family, method, library,
+    learner_fallback = c("error", "glm"), context = "nuisance regression") {
+  learner_fallback <- match.arg(learner_fallback)
   fallback <- mean(y, na.rm = TRUE)
-  if (!is.finite(fallback)) fallback <- 0
-  if (!ncol(xtrain) || length(y) < 5L || (family == "binomial" && length(unique(y)) < 2L))
+  if (!length(y) || !is.finite(fallback)) stop(context, ": no usable training outcomes", call. = FALSE)
+  # An intercept-only design or constant response has a defined constant fit.
+  if (!ncol(xtrain) || length(unique(y)) == 1L)
     return(rep(fallback, nrow(xnew)))
   if (method == "SuperLearner") {
-    fit <- try(SuperLearner::SuperLearner(Y = y, X = as.data.frame(xtrain),
-      newX = as.data.frame(xnew), family = family, SL.library = library,
-      cvControl = list(V = min(5L, max(2L, floor(length(y) / 20))))), silent = TRUE)
-    if (!inherits(fit, "try-error")) return(as.numeric(fit$SL.predict))
+    messages <- character()
+    fit <- tryCatch(withCallingHandlers(
+      l2_superlearner_fit(y,xtrain,xnew,family,library),
+      warning = function(w) {
+        messages <<- c(messages,conditionMessage(w)); invokeRestart("muffleWarning")
+      }), error = identity)
+    if (!inherits(fit,"error") && (length(fit$SL.predict) != nrow(xnew) ||
+        any(!is.finite(fit$SL.predict))))
+      fit <- simpleError("SuperLearner returned nonfinite or incorrectly sized predictions")
+    if (!inherits(fit,"error") && any(vapply(
+        list(fit$errorsInCVLibrary,fit$errorsInLibrary),
+        function(z) length(z)>0L && all(z %in% TRUE), logical(1))))
+      fit <- simpleError("All requested SuperLearner library members failed")
+    if (!inherits(fit,"error")) {
+      failed <- c(fit$errorsInCVLibrary,fit$errorsInLibrary)
+      if (any(failed %in% TRUE)) messages <- c(messages,
+        "SuperLearner reported failed library members; the ensemble uses surviving learners.")
+      if (length(messages)) warning(context, ": ", paste(unique(messages),collapse="; "),call.=FALSE)
+      return(as.numeric(fit$SL.predict))
+    }
+    detail <- paste(unique(c(conditionMessage(fit),messages)),collapse="; ")
+    msg <- paste0(context, ": SuperLearner failed [",paste(unlist(library),collapse=", "),
+      ", family=",family,", n_train=",length(y),"]. Original error: ",detail)
+    if (learner_fallback == "error") stop(msg,
+      ". No substitute model was fitted. Set learner_fallback = 'glm' to explicitly allow a GLM fallback.",call.=FALSE)
+    warning(msg,". Using the explicitly requested GLM fallback.",call.=FALSE)
   }
   dd <- data.frame(.y = y, xtrain, check.names = FALSE)
   nd <- data.frame(xnew, check.names = FALSE)
-  fit <- try(stats::glm(.y ~ ., data = dd, family = family), silent = TRUE)
-  if (inherits(fit, "try-error")) rep(fallback, nrow(xnew)) else
+  pred <- tryCatch({
+    fit <- stats::glm(.y ~ ., data = dd, family = family)
     as.numeric(stats::predict.glm(fit, newdata = nd, type = "response"))
+  },error=function(e) stop(context,": GLM fitting/prediction failed: ",conditionMessage(e),call.=FALSE))
+  if (length(pred)!=nrow(xnew) || any(!is.finite(pred)))
+    stop(context,": GLM returned invalid predictions",call.=FALSE)
+  pred
 }
 
 l2_split_nuisance <- function(data, Y, A, C, X, tr, te, method,
-                              lib_e, lib_r, lib_y, propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+                              lib_e, lib_r, lib_y, propensity_clip = clip, response_clip = clip, clip = 1e-4, learner_fallback = "error", context = "structural nuisance") {
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
   xt <- data[tr, X, drop = FALSE]; xa <- data[, X, drop = FALSE]
-  e1 <- l2_learner_predict(data[[A]][tr], xt, xa, "binomial", method, lib_e)
+  e1 <- l2_learner_predict(data[[A]][tr], xt, xa, "binomial", method, lib_e, learner_fallback, paste(context,"treatment propensity"))
   out <- list(e0 = clip_probs(1 - e1, propensity_clip),
               e1 = clip_probs(e1, propensity_clip))
   for (a in 0:1) {
     ia <- tr & data[[A]] == a
     rho <- l2_learner_predict(as.numeric(data[[C]][ia] == 0),
-      data[ia, X, drop = FALSE], xa, "binomial", method, lib_r)
+      data[ia, X, drop = FALSE], xa, "binomial", method, lib_r, learner_fallback, paste(context,"response probability, arm",a))
     iy <- ia & data[[C]] == 0
     mu <- l2_learner_predict(data[[Y]][iy], data[iy, X, drop = FALSE], xa,
-                             "gaussian", method, lib_y)
+                             "gaussian", method, lib_y, learner_fallback, paste(context,"outcome regression, arm",a))
     out[[paste0("rho", a)]] <- clip_probs(rho, response_clip)
     out[[paste0("mu", a)]] <- mu
   }
@@ -578,10 +631,10 @@ l2_oracle_dual_regressions <- function(data, a, B, delta, par, sigma,
        d_rho = weighted(ev$d_rho))
 }
 
-l2_pseudo_regression <- function(train, X, pseudo, use, test, method, library) {
+l2_pseudo_regression <- function(train, X, pseudo, use, test, method, library, learner_fallback = "error", context = "pseudo-outcome regression") {
   ## pseudo is already restricted to use rows.
   xtr <- train[use, X, drop = FALSE]
-  l2_learner_predict(pseudo, xtr, test[, X, drop = FALSE], "gaussian", method, library)
+  l2_learner_predict(pseudo, xtr, test[, X, drop = FALSE], "gaussian", method, library, learner_fallback, context)
 }
 
 l2_dual_evaluate <- function(y, A, C, a, nuisance, B, delta, par, sigma,

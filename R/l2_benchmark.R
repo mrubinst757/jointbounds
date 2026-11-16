@@ -38,6 +38,11 @@ utils::globalVariables(c(".radius_x", "estimate", "simultaneous_low",
 #' @param propensity_clip,response_clip Override `clip` for treatment and
 #'   response probabilities, respectively. Thresholds must lie strictly between
 #'   zero and one half. Reference fits supply both thresholds when reused.
+#' @param learner_fallback On a SuperLearner fitting or prediction failure,
+#'   stop with the original error by default (`"error"`). `"glm"` explicitly
+#'   permits a GLM substitute and emits a warning describing the failed fit.
+#'   Reused initial fits supply their saved policy; older caches default to
+#'   error for new fits. Existing cached predictions are not recomputed.
 #' @export
 l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
                                max_per_pz = 10L, subsets = NULL,
@@ -51,7 +56,8 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
                                sl_lib_outcome = sl_libs, seed = 1L,
                                reference_fit = NULL,
                                reference_strategy = c("three_way", "shared_training", "legacy"),
-                               propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip, clip = 1e-4) {
+                               propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, learner_fallback = c("error", "glm")) {
+  learner_fallback <- match.arg(learner_fallback)
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
   subset_selection <- match.arg(subset_selection)
@@ -88,6 +94,7 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
     id <- full$fold_id; reference_strategy <- full$strategy
     nuisance_method <- full$method; seed <- full$seed; propensity_clip <- full$clip
     response_clip <- if (is.null(full$response_clip)) 1e-4 else full$response_clip
+    learner_fallback <- if (is.null(full$learner_fallback)) "error" else full$learner_fallback
     sl_lib_prop <- full$lib_e; sl_lib_miss <- full$lib_r; sl_lib_outcome <- full$lib_y
   } else if (reference_strategy != "legacy") {
     min_folds <- if (reference_strategy == "three_way") 3L else 2L
@@ -95,6 +102,8 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
     set.seed(seed)
     id <- sample(rep(seq_len(max(min_folds,min(as.integer(folds),nrow(data)))),length.out=nrow(data)))
   } else {
+    if (learner_fallback != "error")
+      stop("The legacy benchmark strategy supports learner_fallback = error only")
     id <- NULL
   }
   fit_set <- function(Z) {
@@ -102,7 +111,7 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
       folds,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,seed,
       propensity_clip=propensity_clip,response_clip=response_clip))
     splits <- l2_reference_splits(data,Y,A,C,Z,id,reference_strategy,
-      nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip = response_clip)
+      nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip = response_clip,learner_fallback = learner_fallback)
     l2_reference_scores(data,Y,A,C,id,splits)
   }
   if (is.null(reference_fit)) full <- fit_set(X)
@@ -147,7 +156,7 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
     scores = scores, target_scores = target_scores,
     full_scores = if (variance) full_if else list(),
     full = full$estimates,
-    metadata = list(propensity_clip = propensity_clip, response_clip = response_clip, X = X, fold_id = id, reference_strategy = reference_strategy,
+    metadata = list(learner_fallback = learner_fallback, propensity_clip = propensity_clip, response_clip = response_clip, X = X, fold_id = id, reference_strategy = reference_strategy,
       reused_reference = !is.null(reference_fit), max_per_pz = max_per_pz,
       subset_selection = subset_selection, variance = variance), call = match.call())
   class(out) <- "jointbounds_l2_benchmarks"

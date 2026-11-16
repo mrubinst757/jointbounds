@@ -1,14 +1,15 @@
 # Structural predictions for a zero-budget AIPW reference. Each fold is
 # fitted once so both signed endpoints and both arms use the same predictions.
 l2_reference_splits <- function(data, Y, A, C, X, id, strategy, method,
-                                lib_e, lib_r, lib_y, clip, seed, response_clip = 1e-4) {
+                                lib_e, lib_r, lib_y, clip, seed, response_clip = 1e-4, learner_fallback = "error") {
   set.seed(seed)
   V <- max(id)
   lapply(seq_len(V), function(v) {
     tr <- id != v
     if (strategy == "three_way") tr <- tr & id != (if (v == 1L) V else v - 1L)
     z <- l2_split_nuisance(data, Y, A, C, X, tr, !tr, method,
-                           lib_e, lib_r, lib_y, propensity_clip = clip, response_clip = response_clip)
+                           lib_e, lib_r, lib_y, propensity_clip = clip, response_clip = response_clip,
+                           learner_fallback = learner_fallback, context = paste("fold",v))
     z$evaluation <- lapply(z$test, `[`, id[!tr] == v)
     z
   })

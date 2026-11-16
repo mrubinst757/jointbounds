@@ -7,9 +7,10 @@ l2_aipw_benchmarks (data, Y, A, C, X, p_z = NULL, max_per_pz = 10L, subsets = NU
     folds = 5L, nuisance_method = c("SuperLearner", "glm"), sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
     sl_lib_outcome = sl_libs, seed = 1L, reference_fit = NULL, reference_strategy = c("three_way",
         "shared_training", "legacy"), propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip,
-    clip = 1e-04)
+    clip = 1e-04, learner_fallback = c("error", "glm"))
 }
 \arguments{
+\item{learner_fallback}{On SuperLearner failure, stop with the original error by default (\code{"error"}). The explicit \code{"glm"} option permits a substitute GLM with a warning. Initial-fit reuse inherits its saved policy. Older caches default to error for new regressions; cached predictions are not recomputed. The legacy benchmark strategy supports error only.}
 \item{clip}{Common two-sided clipping threshold, default 1e-4. Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
 \item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
 

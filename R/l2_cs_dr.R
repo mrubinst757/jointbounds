@@ -32,6 +32,11 @@
 #' @param nuisance_fit Optional reusable output from `l2_initial_fit()`.
 #'   Supplies cached structural predictions, folds, seed, learners, and clipping.
 #'   Requires identical ordered data; overrides these fitting settings.
+#' @param learner_fallback On a SuperLearner fitting or prediction failure,
+#'   stop with the original error by default (`"error"`). `"glm"` explicitly
+#'   permits a GLM substitute and emits a warning describing the failed fit.
+#'   Reused initial fits supply their saved policy; older caches default to
+#'   error for new fits. Existing cached predictions are not recomputed.
 #' @export
 l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            delta_R = c(.2, .2), delta_A = c(.2, .2),
@@ -48,7 +53,8 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            nuisance_error_sign = c(e = 1, rho = -1,
                                                    regression = 1),
                            delta_K = NULL, propensity_clip = clip,
-                           moment_strategy = c("three_way", "shared_training"), sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL) {
+                           moment_strategy = c("three_way", "shared_training"), sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL, learner_fallback = c("error", "glm")) {
+  learner_fallback <- match.arg(learner_fallback)
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
   strategy_supplied <- !missing(moment_strategy)
@@ -64,6 +70,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
     nuisance_method <- cache$method
     sl_lib_prop <- cache$lib_e; sl_lib_miss <- cache$lib_r; sl_lib_outcome <- cache$lib_y
     propensity_clip <- cache$clip; response_clip <- cache$response_clip
+    learner_fallback <- if (is.null(cache$learner_fallback)) "error" else cache$learner_fallback
     if (strategy_supplied && moment_strategy != cache$strategy)
       stop("moment_strategy must match the initial fit")
     moment_strategy <- cache$strategy
@@ -96,7 +103,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   ref_strategy <- moment_strategy
   if (!is.null(cache)) ref_splits <- cache$splits
   else if (zero_ref) ref_splits <- l2_reference_splits(data,Y,A,C,X,fold_id,
-    ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip = response_clip)
+    ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip = response_clip,learner_fallback = learner_fallback)
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   has_oracle <- all(c("p_A1_given_X", "p_C0_given_X", "p_C1_given_X",
     "mu_Y0_given_XC0", "mu_Y1_given_XC0", "mu_Y0", "mu_Y1", "X1",
@@ -131,7 +138,8 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
           nuisance_error_rate, nuisance_error_scale, nuisance_error_sign,
           propensity_clip = propensity_clip, response_clip = response_clip) else
         l2_split_nuisance(data, Y, A, C, X, tr, nonfit, nuisance_method,
-          sl_lib_prop, sl_lib_miss, sl_lib_outcome, propensity_clip = propensity_clip, response_clip = response_clip)
+          sl_lib_prop, sl_lib_miss, sl_lib_outcome, propensity_clip = propensity_clip, response_clip = response_clip,
+          learner_fallback = learner_fallback, context = paste("fold",v))
       if (!controlled_error) {
         if (moment_strategy == "three_way") {
           nonfit_id <- which(nonfit)
@@ -165,7 +173,8 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
         nu <- list(nu1 = rep(0, sum(te)))
         for (k in 2:4) nu[[paste0("nu", k)]] <- l2_pseudo_regression(
           data[reg, , drop = FALSE], X, ztr[iao]^k, iao,
-          data[te, , drop = FALSE], nuisance_method, sl_lib_outcome)
+          data[te, , drop = FALSE], nuisance_method, sl_lib_outcome, learner_fallback,
+          paste("CS residual moment",k,"arm",a,"fold",v))
       }
       b <- delta[a + 1L] * (1 - rho); q <- 1 - e
       moment_scores <- function(k, w, we, wr, nuk, nukm1,
@@ -304,6 +313,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
          "for first-order nuisance-estimation error."),
        call = match.call())
   out$moment_diagnostics <- do.call(rbind, regularity)
+  out$parameters$learner_fallback <- learner_fallback
   out$reused_nuisance_fit <- !is.null(cache)
   joint <- l2_joint_covariance(out$scores)
   out$influence_covariance <- joint$influence
@@ -312,7 +322,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
     l2_reference_scores(data,Y,A,C,fold_id,ref_splits),
     list(signature=l2_reference_signature(data,Y,A,C,X), fold_id=fold_id,
          strategy=ref_strategy, method=nuisance_method, seed=seed,
-         clip=propensity_clip, response_clip=response_clip, lib_e=sl_lib_prop, lib_r=sl_lib_miss, lib_y=sl_lib_outcome))
+         clip=propensity_clip, response_clip=response_clip, learner_fallback=learner_fallback, lib_e=sl_lib_prop, lib_r=sl_lib_miss, lib_y=sl_lib_outcome))
   if (zero_ref) {
     rr <- out$benchmark_reference
     rr$estimates["aipw"] <- out$ate$estimate[out$ate$estimator=="eif" & out$ate$endpoint=="lower"]

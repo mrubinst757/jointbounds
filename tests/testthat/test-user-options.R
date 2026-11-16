@@ -1,6 +1,6 @@
 test_that("common libraries propagate and individual overrides win", {
   calls <- list()
-  local_mocked_bindings(l2_learner_predict = function(y, xtrain, xnew, family, method, library) {
+  local_mocked_bindings(l2_learner_predict = function(y, xtrain, xnew, family, method, library, ...) {
     calls[[length(calls)+1L]] <<- library
     rep(mean(y), nrow(xnew))
   }, .package = "jointbounds")

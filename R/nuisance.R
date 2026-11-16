@@ -2,9 +2,16 @@ l2_quiet_superlearner <- function(...) {
   # SuperLearner defaults to parent.frame() when resolving `All` and learner
   # wrappers.  A namespace-qualified call from jointbounds would otherwise look
   # in the jointbounds namespace and fail with "object 'All' not found".
-  suppressWarnings(SuperLearner::SuperLearner(
+  args <- list(...)
+  fit <- SuperLearner::SuperLearner(
     ..., verbose = FALSE, env = asNamespace("SuperLearner")
-  ))
+  )
+  if (length(fit$SL.predict) != nrow(args$newX) || any(!is.finite(fit$SL.predict)))
+    stop("SuperLearner returned invalid predictions")
+  if (any(vapply(list(fit$errorsInCVLibrary,fit$errorsInLibrary),
+      function(z) length(z)>0L && all(z %in% TRUE), logical(1))))
+    stop("All requested SuperLearner library members failed")
+  fit
 }
 
 #' Estimate nuisance functions using SuperLearner with cross-fitting
@@ -51,6 +58,7 @@ estimate_nuisance <- function(X, A, C, Y,
   }
   n <- length(A)
   if (!is.matrix(X)) X <- as.matrix(X)
+  if (is.null(colnames(X))) colnames(X) <- paste0("X", seq_len(ncol(X)))
   family_Y_object <- switch(family_Y,
     gaussian = stats::gaussian(),
     binomial = stats::binomial(),
@@ -66,8 +74,6 @@ estimate_nuisance <- function(X, A, C, Y,
   pi1 <- numeric(n)
   mu0 <- numeric(n)
   mu1 <- numeric(n)
-  successful_sl_fits <- 0L
-  sl_errors <- character()
 
   for (v in seq_len(V)) {
     # V = 1 means no sample splitting: fit and predict on the full sample.
@@ -91,10 +97,11 @@ estimate_nuisance <- function(X, A, C, Y,
           )
         },
         error = function(e) {
-          sl_errors <<- c(sl_errors, conditionMessage(e)); NULL
+          stop("SuperLearner failed: treatment propensity; fold ", v,
+            ". Original error: ", conditionMessage(e), call. = FALSE)
         }
       )
-      if (!is.null(fit_e)) successful_sl_fits <- successful_sl_fits + 1L
+
       if (is.null(fit_e)) {
         e[eval] <- clip_probs(mean(A[train]), propensity_clip)
       } else {
@@ -121,10 +128,11 @@ estimate_nuisance <- function(X, A, C, Y,
           )
         },
         error = function(e) {
-          sl_errors <<- c(sl_errors, conditionMessage(e)); NULL
+          stop("SuperLearner failed: missingness regression, arm ", a, "; fold ", v,
+            ". Original error: ", conditionMessage(e), call. = FALSE)
         }
       )
-      if (!is.null(fit_pi)) successful_sl_fits <- successful_sl_fits + 1L
+
       if (is.null(fit_pi)) {
         if (a == 0) pi0[eval] <- clip_probs(mean(C[ia]), response_clip) else pi1[eval] <- clip_probs(mean(C[ia]), response_clip)
       } else {
@@ -156,10 +164,11 @@ estimate_nuisance <- function(X, A, C, Y,
             )
           },
           error = function(e) {
-            sl_errors <<- c(sl_errors, conditionMessage(e)); NULL
+            stop("SuperLearner failed: outcome regression, arm ", a, "; fold ", v,
+            ". Original error: ", conditionMessage(e), call. = FALSE)
           }
         )
-        if (!is.null(fit_mu)) successful_sl_fits <- successful_sl_fits + 1L
+
         if (is.null(fit_mu)) {
           if (a == 0) mu0[eval] <- mean(Y_ia, na.rm = TRUE) else mu1[eval] <- mean(Y_ia, na.rm = TRUE)
         } else {
@@ -197,10 +206,11 @@ estimate_nuisance <- function(X, A, C, Y,
             )
           },
           error = function(e) {
-            sl_errors <<- c(sl_errors, conditionMessage(e)); NULL
+            stop("SuperLearner failed: pooled outcome regression; fold ", v,
+            ". Original error: ", conditionMessage(e), call. = FALSE)
           }
         )
-        if (!is.null(fit_mu_pooled)) successful_sl_fits <- successful_sl_fits + 1L
+
         if (is.null(fit_mu_pooled)) {
           mu_all <- mean(Y_io, na.rm = TRUE)
           mu0[eval] <- if (any(A[io] == 0)) mean(Y_io[A[io] == 0], na.rm = TRUE) else mu_all
@@ -214,11 +224,5 @@ estimate_nuisance <- function(X, A, C, Y,
     }
   }
 
-  if (successful_sl_fits == 0L && ncol(X) > 0L) {
-    detail <- if (length(sl_errors)) paste(unique(sl_errors), collapse = "; ") else
-      "no error message was returned"
-    warning("All SuperLearner fits failed; nuisance estimates used marginal fallbacks. ",
-            "Underlying error: ", detail)
-  }
   list(e = e, pi0 = pi0, pi1 = pi1, mu0 = mu0, mu1 = mu1, fold_id = fold_id)
 }

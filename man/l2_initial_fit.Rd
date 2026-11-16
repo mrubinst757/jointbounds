@@ -6,9 +6,10 @@ l2_initial_fit(data, Y, A, C, X, folds = 5L,
   nuisance_method = c("SuperLearner", "glm"), sl_libs = "SL.glm",
   sl_lib_prop = sl_libs, sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs,
   clip = 1e-4, propensity_clip = clip, response_clip = clip,
-  seed = 1L, conf_level = .95, strategy = c("three_way", "shared_training"))
+  seed = 1L, conf_level = .95, strategy = c("three_way", "shared_training"), learner_fallback = c("error", "glm"))
 }
 \arguments{
+\item{learner_fallback}{On SuperLearner failure, stop with the original error by default (\code{"error"}). The explicit \code{"glm"} option permits a substitute GLM with a warning. Initial-fit reuse inherits its saved policy. Older caches default to error for new regressions; cached predictions are not recomputed. The legacy benchmark strategy supports error only.}
 \item{data}{Analysis data frame, preserving observation order for downstream reuse.}
 \item{Y,A,C}{Column names: outcome, binary treatment, and missingness (C=1 means missing).}
 \item{X}{Character vector of adjustment covariate names.}

@@ -58,7 +58,7 @@ cross-fitted estimator.}
 
 \item{keep_fits}{Retain the potentially large list of pointwise fits.}
 
-\item{...}{Use \code{clip} for both probability thresholds, with optional \code{propensity_clip} and \code{response_clip} overrides. Use \code{sl_libs} for a shared learner library, model-specific library arguments for overrides, and \code{basis} for a sharp balance formula. Additional arguments passed to `l2_cs_crossfit()` or
+\item{...}{The default learner failure policy is to stop; \code{learner_fallback = "glm"} explicitly permits a warned GLM substitute. Use \code{clip} for both probability thresholds, with optional \code{propensity_clip} and \code{response_clip} overrides. Use \code{sl_libs} for a shared learner library, model-specific library arguments for overrides, and \code{basis} for a sharp balance formula. Additional arguments passed to `l2_cs_crossfit()` or
 `l2_sharp_crossfit()`.}
 }
 \value{

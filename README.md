@@ -531,3 +531,33 @@ fit with `strategy = "shared_training"` supports CS only. This is distinct from
 ordinary two-stage `generate_ate()` output, which cannot be used as this cache.
 The initial fit and its predictions can be saved with `saveRDS()` and reloaded
 with `readRDS()` for later use with identical analysis data.
+
+
+### Learner failures are explicit
+
+Cross-fitted estimation now stops if a requested SuperLearner fit fails or
+returns invalid predictions. The message includes the original error, learner
+library, sample size, and fold/model context. It never silently substitutes a
+GLM. Standard SuperLearner wrappers and screening functions are resolved without
+requiring `library(SuperLearner)`; custom wrappers may be defined globally.
+
+```r
+initial <- l2_initial_fit(dat, Y = y, A = a, C = ".missing", X = x,
+  nuisance_method = "SuperLearner", sl_libs = "SL.ranger")
+# Optional: explicitly allow a GLM substitute, warning on every failed fit.
+initial <- l2_initial_fit(dat, Y = y, A = a, C = ".missing", X = x,
+  nuisance_method = "SuperLearner", sl_libs = "SL.ranger",
+  learner_fallback = "glm")
+```
+
+`learner_fallback` also passes through `l2_sensitivity_band()` to sharp/CS
+estimation, and is supported by non-legacy AIPW benchmarks. Reused initial fits
+supply their saved policy. Constant responses and intercept-only designs use
+constant predictions without fitting an unnecessary learner. A failing GLM is
+reported rather than replaced by a mean. If SuperLearner retains a usable
+ensemble after dropping some library members, the associated warnings remain
+visible. The older nuisance-fitting interface now propagates SuperLearner errors
+instead of replacing failed fits with marginal means.
+
+Refit initial objects made with older versions: updating the package does not
+change models that have already been cached.

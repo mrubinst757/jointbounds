@@ -28,7 +28,7 @@ l2_sensitivity_band(
   \item{bound_method}{CS or sharp cross-fitted endpoints.}
   \item{keep_fits}{Retain all pointwise fits.}
   \item{nuisance_fit}{Optional reusable structural nuisance cache from \code{l2_initial_fit()}.}
-  \item{...}{Arguments passed to the selected cross-fitted estimator.}
+  \item{...}{The default learner failure policy is to stop; \code{learner_fallback = "glm"} explicitly permits a warned GLM substitute. Arguments passed to the selected cross-fitted estimator.}
 }
 \value{Pointwise and simultaneous endpoint intervals, outward identified-set
 bands, row-level scores, the multiplier critical value, and draw diagnostics.}

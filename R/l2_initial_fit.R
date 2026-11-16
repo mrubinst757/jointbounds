@@ -18,12 +18,18 @@
 #'   pseudo-outcome regressions still run. Reduced-covariate benchmarks fit
 #'   their own structural models using the cached fold scheme and settings.
 #'   Ordinary `generate_ate()` objects cannot be substituted for this cache.
+#' @param learner_fallback On a SuperLearner fitting or prediction failure,
+#'   stop with the original error by default (`"error"`). `"glm"` explicitly
+#'   permits a GLM substitute and emits a warning describing the failed fit.
+#'   Reused initial fits supply their saved policy; older caches default to
+#'   error for new fits. Existing cached predictions are not recomputed.
 #' @export
 l2_initial_fit <- function(data, Y, A, C, X, folds = 5L,
     nuisance_method = c("SuperLearner", "glm"), sl_libs = "SL.glm",
     sl_lib_prop = sl_libs, sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs,
     clip = 1e-4, propensity_clip = clip, response_clip = clip,
-    seed = 1L, conf_level = .95, strategy = c("three_way", "shared_training")) {
+    seed = 1L, conf_level = .95, strategy = c("three_way", "shared_training"), learner_fallback = c("error", "glm")) {
+  learner_fallback <- match.arg(learner_fallback)
   nuisance_method <- match.arg(nuisance_method); strategy <- match.arg(strategy)
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
@@ -36,11 +42,11 @@ l2_initial_fit <- function(data, Y, A, C, X, folds = 5L,
   folds <- max(minimum,min(as.integer(folds),n))
   set.seed(seed); id <- sample(rep(seq_len(folds),length.out=n))
   splits <- l2_reference_splits(data,Y,A,C,X,id,strategy,nuisance_method,
-    sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip)
+    sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip,learner_fallback)
   ref <- c(l2_reference_scores(data,Y,A,C,id,splits),
     list(signature=l2_reference_signature(data,Y,A,C,X),fold_id=id,
       strategy=strategy,method=nuisance_method,seed=seed,clip=propensity_clip,
-      response_clip=response_clip,lib_e=sl_lib_prop,lib_r=sl_lib_miss,lib_y=sl_lib_outcome))
+      response_clip=response_clip,learner_fallback=learner_fallback,lib_e=sl_lib_prop,lib_r=sl_lib_miss,lib_y=sl_lib_outcome))
   if (any(!is.finite(ref$scores$aipw))) stop("Initial fitting returned nonfinite AIPW scores")
   ref$centered <- lapply(ref$scores,function(z) z-mean(z))
   se <- stats::sd(ref$scores$aipw)/sqrt(n); est <- ref$estimates[["aipw"]]
@@ -59,7 +65,7 @@ l2_initial_fit <- function(data, Y, A, C, X, folds = 5L,
     scores=ref$scores, influence_function=list(ate=ref$centered$aipw),
     nuisance=nuisance,fold_id=id,crossfit_roles=roles,splits=splits,
     benchmark_reference=ref,conf_level=conf_level,
-    parameters=list(folds=folds,strategy=strategy,nuisance_method=nuisance_method,
+    parameters=list(learner_fallback=learner_fallback,folds=folds,strategy=strategy,nuisance_method=nuisance_method,
       propensity_clip=propensity_clip,response_clip=response_clip,seed=seed,
       sl_lib_prop=sl_lib_prop,sl_lib_miss=sl_lib_miss,sl_lib_outcome=sl_lib_outcome),
     call=match.call()),
