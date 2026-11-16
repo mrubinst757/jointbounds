@@ -3,19 +3,17 @@
 \alias{print.jointbounds_ate}
 \title{Cross-fitted doubly robust ATE under MAR and no unmeasured confounding}
 \usage{
-generate_ate(
-  data, Y, A, C, X, folds = 5L,
-  nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
-  sl_lib_outcome = sl_libs,
-  outcome_family = c("gaussian", "binomial"), seed = 1L,
-  trim = 1e-4, conf_level = 0.95, diagnostic_control = list(),
-  keep_nuisance = FALSE,
-  sl_libs = "SL.glm")
+generate_ate (data, Y, A, C, X, folds = 5L, nuisance_method = c("SuperLearner", "glm"), sl_lib_prop = sl_libs,
+    sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs, outcome_family = c("gaussian", "binomial"),
+    seed = 1L, trim = 1e-04, conf_level = 0.95, diagnostic_control = list(), keep_nuisance = FALSE,
+    sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = trim)
 
 \method{print}{jointbounds_ate}(x, ...)
 }
 \arguments{
+\item{clip}{Common two-sided clipping threshold, default the existing trim argument (1e-4 by default). Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
+\item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
+
 \item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data}{A data frame.}
   \item{Y, A, C}{Column names. \code{A} and \code{C} must be binary and

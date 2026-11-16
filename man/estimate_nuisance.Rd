@@ -4,22 +4,14 @@
 \alias{estimate_nuisance}
 \title{Estimate nuisance functions using SuperLearner with cross-fitting}
 \usage{
-estimate_nuisance(
-  X,
-  A,
-  C,
-  Y,
-  V = 2,
-  sl_lib_prop = sl_libs,
-  sl_lib_miss = sl_libs,
-  sl_lib_outcome = sl_libs,
-  stratify_mu = TRUE,
-  family_Y = "gaussian",
-  seed = NULL,
-  sl_libs = "SL.glm"
-)
+estimate_nuisance (X, A, C, Y, V = 2, sl_lib_prop = sl_libs, sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs,
+    stratify_mu = TRUE, family_Y = "gaussian", seed = NULL, sl_libs = "SL.glm", propensity_clip = clip,
+    response_clip = clip, clip = 1e-06)
 }
 \arguments{
+\item{clip}{Common two-sided clipping threshold, default 1e-6. Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
+\item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
+
 \item{X}{Matrix of covariates.}
 
 \item{A}{Treatment indicator (0/1).}

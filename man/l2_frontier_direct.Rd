@@ -4,29 +4,15 @@
 \alias{l2_frontier_direct}
 \title{Direct convex optimization of a sharp net-model frontier}
 \usage{
-l2_frontier_direct(
-  data,
-  Y,
-  A,
-  C,
-  X,
-  delta_M = 0,
-  target = 0,
-  basis = NULL,
-  folds = 5L,
-  nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = sl_libs,
-  sl_lib_miss = sl_libs,
-  sl_lib_outcome = sl_libs,
-  seed = 1L,
-  nuisance = NULL,
-  solver = NULL,
-  solver_control = list(),
-  feasibility_tol = 1e-05,
-  sl_libs = "SL.glm"
-)
+l2_frontier_direct (data, Y, A, C, X, delta_M = 0, target = 0, basis = NULL, folds = 5L, nuisance_method = c("SuperLearner",
+    "glm"), sl_lib_prop = sl_libs, sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs, seed = 1L,
+    nuisance = NULL, solver = NULL, solver_control = list(), feasibility_tol = 1e-05, sl_libs = "SL.glm",
+    propensity_clip = clip, response_clip = clip, clip = 1e-04)
 }
 \arguments{
+\item{clip}{Common two-sided clipping threshold, default 1e-4. Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
+\item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
+
 \item{data}{A data frame.}
 
 \item{Y, A, C}{Column names. `A` and `C` are binary; `C = 1` means missing.}

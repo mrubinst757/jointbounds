@@ -36,6 +36,11 @@
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 generate_ate <- function(data, Y, A, C, X,
                          folds = 5L,
@@ -48,7 +53,9 @@ generate_ate <- function(data, Y, A, C, X,
                          trim = 1e-4,
                          conf_level = .95,
                          diagnostic_control = list(),
-                         keep_nuisance = FALSE, sl_libs = "SL.glm") {
+                         keep_nuisance = FALSE, sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = trim) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   nuisance_method <- match.arg(nuisance_method)
   outcome_family <- match.arg(outcome_family)
   if (!is.data.frame(data)) stop("data must be a data.frame")
@@ -86,15 +93,16 @@ generate_ate <- function(data, Y, A, C, X,
   nuisance <- if (nuisance_method == "SuperLearner") {
     l2_nuisance_sl(fit_data, Y, A, C, fit_X, folds, seed,
       sl_lib_prop, sl_lib_miss, sl_lib_outcome,
-      family_Y = outcome_family)
+      family_Y = outcome_family, propensity_clip = propensity_clip, response_clip = response_clip)
   } else {
     family_object <- if (outcome_family == "gaussian")
       stats::gaussian() else stats::binomial()
     l2_nuisance_glm(fit_data, Y, A, C, fit_X, folds, seed,
-                    outcome_family = family_object)
+                    outcome_family = family_object, propensity_clip = propensity_clip, response_clip = response_clip)
   }
   for (nm in c("e0", "e1", "rho0", "rho1"))
-    nuisance[[nm]] <- clip_probs(nuisance[[nm]], trim)
+    nuisance[[nm]] <- clip_probs(nuisance[[nm]],
+      if (startsWith(nm, "e")) propensity_clip else response_clip)
   needed <- c("e0", "e1", "rho0", "rho1", "mu0", "mu1")
   if (any(!vapply(nuisance[needed], function(z)
     length(z) == n && all(is.finite(z)), logical(1))))
@@ -129,8 +137,8 @@ generate_ate <- function(data, Y, A, C, X,
     codes <- character()
     if (sum(observed) < max(10L, 2L * folds))
       codes <- c(codes, "few_observed_outcomes")
-    if (min(c(e, rho)) <= trim * (1 + 1e-8) ||
-        max(c(e, rho)) >= 1 - trim * (1 + 1e-8))
+    if (any(e <= propensity_clip * (1 + 1e-8) | e >= 1 - propensity_clip * (1 + 1e-8)) ||
+        any(rho <= response_clip * (1 + 1e-8) | rho >= 1 - response_clip * (1 + 1e-8)))
       codes <- c(codes, "probability_trimming")
     if (length(positive_weight) && max(positive_weight) > dc$max_weight)
       codes <- c(codes, "large_inverse_probability_weight")
@@ -183,6 +191,7 @@ generate_ate <- function(data, Y, A, C, X,
       "treatment-response scores e_a(X) rho_a(X) are correct."),
     parameters = list(folds = folds, nuisance_method = nuisance_method,
       outcome_family = outcome_family, trim = trim,
+      propensity_clip = propensity_clip, response_clip = response_clip,
       conf_level = conf_level),
     call = match.call()
   )

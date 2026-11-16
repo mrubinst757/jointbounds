@@ -30,6 +30,11 @@ l2_quiet_superlearner <- function(...) {
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 estimate_nuisance <- function(X, A, C, Y,
                               V = 2,
@@ -38,7 +43,9 @@ estimate_nuisance <- function(X, A, C, Y,
                               sl_lib_outcome = sl_libs,
                               stratify_mu = TRUE,
                               family_Y = "gaussian",
-                              seed = NULL, sl_libs = "SL.glm") {
+                              seed = NULL, sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = 1e-6) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   if (!requireNamespace("SuperLearner", quietly = TRUE)) {
     stop("Package 'SuperLearner' is required. Install with install.packages('SuperLearner').")
   }
@@ -71,7 +78,7 @@ estimate_nuisance <- function(X, A, C, Y,
     Xeval <- X[eval, , drop = FALSE]
     # Propensity e(X) = P(A=1|X) — skip SuperLearner if training set empty or too small
     if (n_train < 2L || length(unique(A[train])) < 2L) {
-      e[eval] <- clip_probs(mean(A))
+      e[eval] <- clip_probs(mean(A), propensity_clip)
     } else {
       fit_e <- tryCatch(
         {
@@ -89,9 +96,9 @@ estimate_nuisance <- function(X, A, C, Y,
       )
       if (!is.null(fit_e)) successful_sl_fits <- successful_sl_fits + 1L
       if (is.null(fit_e)) {
-        e[eval] <- clip_probs(mean(A[train]))
+        e[eval] <- clip_probs(mean(A[train]), propensity_clip)
       } else {
-        e[eval] <- clip_probs(fit_e$SL.predict)
+        e[eval] <- clip_probs(fit_e$SL.predict, propensity_clip)
       }
     }
 
@@ -100,7 +107,7 @@ estimate_nuisance <- function(X, A, C, Y,
       ia <- train & (A == a)
       n_ia <- sum(ia)
       if (n_ia < 2L || length(unique(C[ia])) < 2L) {
-        if (a == 0) pi0[eval] <- clip_probs(mean(C[A == 0])) else pi1[eval] <- clip_probs(mean(C[A == 1]))
+        if (a == 0) pi0[eval] <- clip_probs(mean(C[A == 0]), response_clip) else pi1[eval] <- clip_probs(mean(C[A == 1]), response_clip)
         next
       }
       fit_pi <- tryCatch(
@@ -119,9 +126,9 @@ estimate_nuisance <- function(X, A, C, Y,
       )
       if (!is.null(fit_pi)) successful_sl_fits <- successful_sl_fits + 1L
       if (is.null(fit_pi)) {
-        if (a == 0) pi0[eval] <- clip_probs(mean(C[ia])) else pi1[eval] <- clip_probs(mean(C[ia]))
+        if (a == 0) pi0[eval] <- clip_probs(mean(C[ia]), response_clip) else pi1[eval] <- clip_probs(mean(C[ia]), response_clip)
       } else {
-        if (a == 0) pi0[eval] <- clip_probs(fit_pi$SL.predict) else pi1[eval] <- clip_probs(fit_pi$SL.predict)
+        if (a == 0) pi0[eval] <- clip_probs(fit_pi$SL.predict, response_clip) else pi1[eval] <- clip_probs(fit_pi$SL.predict, response_clip)
       }
     }
 

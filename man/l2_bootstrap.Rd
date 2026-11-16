@@ -2,15 +2,16 @@
 \alias{l2_bootstrap}
 \title{Bootstrap continuous-outcome L2 sensitivity bounds}
 \usage{
-l2_bootstrap(data, Y, A, C, X, delta = c(1, 1),
-  delta_R = c(0, 0), delta_A = c(0, 0), delta_M = delta_R,
-  model = c("net", "separated"), method = c("cs", "sharp"),
-  folds = 5L, nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
-  sl_lib_outcome = sl_libs, basis = NULL, seed = 1L, control = list(),
-  B = 200L, conf_level = 0.95, delta_K = NULL, sl_libs = "SL.glm")
+l2_bootstrap (data, Y, A, C, X, delta = c(1, 1), delta_R = c(0, 0), delta_A = c(0, 0), delta_M = delta_R,
+    model = c("net", "separated"), method = c("cs", "sharp"), folds = 5L, nuisance_method = c("SuperLearner",
+        "glm"), sl_lib_prop = sl_libs, sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs, basis = NULL,
+    seed = 1L, control = list(), B = 200L, conf_level = 0.95, delta_K = NULL, sl_libs = "SL.glm",
+    propensity_clip = clip, response_clip = clip, clip = 1e-04)
 }
 \arguments{
+\item{clip}{Common two-sided clipping threshold, default 1e-4. Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
+\item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
+
 \item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data, Y, A, C, X, delta, delta_R, delta_A, delta_K, delta_M, model,
   method, folds, nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome,

@@ -11,11 +11,6 @@
 #'
 #' @inheritParams l2_bounds
 #' @param conf_level Wald confidence level.
-#' @param propensity_clip Clip estimated treatment probabilities to
-#'   `[propensity_clip, 1 - propensity_clip]` before optimization and score
-#'   evaluation. A finite scalar strictly between zero and one half. The
-#'   default `1e-4` preserves previous behavior; simulation drivers use `0.01`.
-#'   Response probabilities and oracle reference targets are not changed.
 #' @param folds Number of cross-fitting folds when nuisances are fitted. At
 #'   least three folds are then used so the three stages remain disjoint.
 #'   Controlled-error simulations directly construct nuisance estimates and
@@ -42,6 +37,11 @@
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 l2_sharp_crossfit <- function(data, Y, A, C, X,
                               delta = c(1, 1), delta_R = c(.2, .2),
@@ -60,8 +60,9 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                               nuisance_error_scale = 1,
                               nuisance_error_sign = c(e = 1, rho = -1,
                                                       regression = 1),
-                              delta_K = NULL, propensity_clip = 1e-4, sl_libs = "SL.glm") {
+                              delta_K = NULL, propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip, clip = 1e-4) {
   l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   nuisance_method <- match.arg(nuisance_method)
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
@@ -89,7 +90,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
     all((if (model == "net") delta_M else delta_R) == 0)
   ref_strategy <- "three_way"
   if (zero_ref) ref_splits <- l2_reference_splits(data,Y,A,C,X,fold_id,
-    ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed)
+    ref_strategy,nuisance_method,sl_lib_prop,sl_lib_miss,sl_lib_outcome,propensity_clip,seed,response_clip = response_clip)
   zcrit <- stats::qnorm(1 - (1 - conf_level) / 2)
   arm_ep <- vector("list", 4L); scores <- vector("list", 4L)
   diags <- list()
@@ -130,10 +131,10 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
       ns <- if (zero_ref) ref_splits[[v]] else if (nuisance_source == "oracle_error")
         l2_split_nuisance_oracle_error(data, X, tr, nonfit,
           nuisance_error_rate, nuisance_error_scale, nuisance_error_sign,
-          propensity_clip = propensity_clip)
+          propensity_clip = propensity_clip, response_clip = response_clip)
       else l2_split_nuisance(data, Y, A, C, X, tr, nonfit,
         nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome,
-        propensity_clip = propensity_clip)
+        propensity_clip = propensity_clip, response_clip = response_clip)
       ns <- split_nonfit(ns)
       bp0 <- l2_basis_split(data, X, basis, tr, nonfit)
       bp <- list(train = bp0$train,
@@ -337,7 +338,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                                   "none: nuisances directly perturbed" else
                                   "rotating three-stage cross-fitting",
                                 nuisance_source = nuisance_source,
-                                propensity_clip = propensity_clip,
+                                propensity_clip = propensity_clip, response_clip = response_clip,
                                 nuisance_error_rate = nuisance_error_rate,
                                 nuisance_error_scale = nuisance_error_scale,
                                 nuisance_error_sign = nuisance_error_sign),
@@ -353,7 +354,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
     l2_reference_scores(data,Y,A,C,fold_id,ref_splits),
     list(signature=l2_reference_signature(data,Y,A,C,X), fold_id=fold_id,
          strategy=ref_strategy, method=nuisance_method, seed=seed,
-         clip=propensity_clip, lib_e=sl_lib_prop, lib_r=sl_lib_miss, lib_y=sl_lib_outcome))
+         clip=propensity_clip, response_clip=response_clip, lib_e=sl_lib_prop, lib_r=sl_lib_miss, lib_y=sl_lib_outcome))
   if (zero_ref) {
     rr <- out$benchmark_reference
     rr$estimates["aipw"] <- out$ate$estimate[out$ate$estimator=="dr" & out$ate$endpoint=="lower"]
@@ -411,8 +412,9 @@ l2_learner_predict <- function(y, xtrain, xnew, family, method, library) {
 }
 
 l2_split_nuisance <- function(data, Y, A, C, X, tr, te, method,
-                              lib_e, lib_r, lib_y, propensity_clip = 1e-4) {
+                              lib_e, lib_r, lib_y, propensity_clip = clip, response_clip = clip, clip = 1e-4) {
   l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   xt <- data[tr, X, drop = FALSE]; xa <- data[, X, drop = FALSE]
   e1 <- l2_learner_predict(data[[A]][tr], xt, xa, "binomial", method, lib_e)
   out <- list(e0 = clip_probs(1 - e1, propensity_clip),
@@ -424,15 +426,16 @@ l2_split_nuisance <- function(data, Y, A, C, X, tr, te, method,
     iy <- ia & data[[C]] == 0
     mu <- l2_learner_predict(data[[Y]][iy], data[iy, X, drop = FALSE], xa,
                              "gaussian", method, lib_y)
-    out[[paste0("rho", a)]] <- clip_probs(rho, 1e-4)
+    out[[paste0("rho", a)]] <- clip_probs(rho, response_clip)
     out[[paste0("mu", a)]] <- mu
   }
   list(train = lapply(out, `[`, tr), test = lapply(out, `[`, te))
 }
 
 l2_split_nuisance_oracle_error <- function(data, X, tr, te, rate, scale, sign,
-                                           propensity_clip = 1e-4) {
+                                           propensity_clip = clip, response_clip = clip, clip = 1e-4) {
   l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   needed <- c("p_A1_given_X", "p_C0_given_X", "p_C1_given_X",
               "mu_Y0_given_XC0", "mu_Y1_given_XC0")
   if (!all(needed %in% names(data)))
@@ -465,7 +468,7 @@ l2_split_nuisance_oracle_error <- function(data, X, tr, te, rate, scale, sign,
       sign[["rho"]] * scale[["rho"]] * mag * smooth_error(2 + a))
     mu <- data[[paste0("mu_Y", a, "_given_XC0")]] +
       sign[["mu"]] * scale[["mu"]] * mag * smooth_error(4 + a)
-    out[[paste0("rho", a)]] <- clip_probs(rho, 1e-4)
+    out[[paste0("rho", a)]] <- clip_probs(rho, response_clip)
     out[[paste0("mu", a)]] <- mu
   }
   out$err_H <- smooth_error(7)
@@ -1125,8 +1128,8 @@ l2_oracle_sharp_reference <- function(data, delta, delta_R, delta_A,
 }
 
 # Shared validation also protects internal simulation helper calls.
-l2_validate_propensity_clip <- function(x) {
+l2_validate_propensity_clip <- function(x, name = "propensity_clip") {
   if (!is.numeric(x) || length(x) != 1L || !is.finite(x) || x <= 0 || x >= .5)
-    stop("propensity_clip must be a finite scalar strictly between 0 and 0.5")
+    stop(name, " must be a finite scalar strictly between 0 and 0.5")
   invisible(x)
 }

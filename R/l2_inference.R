@@ -127,7 +127,8 @@ l2_multiplier_band <- function(fits, estimator = NULL, B = 1000L,
 #' @param ... Additional arguments passed to `l2_cs_crossfit()` or
 #'   `l2_sharp_crossfit()`. For example, `sl_libs` supplies a common learner
 #'   library, model-specific library arguments override it, and `basis` sets
-#'   the sharp balance formula (NULL balances covariate means).
+#'   the sharp balance formula (NULL balances covariate means). `clip` sets both
+#'   probability thresholds; `propensity_clip` and `response_clip` override it.
 #' @return A multiplier-band object augmented with the sensitivity grid.
 #' @export
 l2_sensitivity_band <- function(data, Y, A, C, X, grid,

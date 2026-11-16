@@ -2,19 +2,17 @@
 \alias{l2_aipw_benchmarks}
 \title{Estimate simultaneous leave-covariate-out AIPW benchmarks}
 \usage{
-l2_aipw_benchmarks(
-  data, Y, A, C, X, p_z = NULL, max_per_pz = 10L, subsets = NULL,
-  subset_selection = c("random", "first"),
-  estimator = c("both", "aipw", "plugin"), variance = FALSE,
-  conf_level = 0.95, folds = 5L,
-  nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
-  sl_lib_outcome = sl_libs, seed = 1L, reference_fit = NULL,
-  reference_strategy = c("three_way", "shared_training", "legacy"),
-  propensity_clip = 1e-4,
-  sl_libs = "SL.glm")
+l2_aipw_benchmarks (data, Y, A, C, X, p_z = NULL, max_per_pz = 10L, subsets = NULL, subset_selection = c("random",
+    "first"), estimator = c("both", "aipw", "plugin"), variance = FALSE, conf_level = 0.95,
+    folds = 5L, nuisance_method = c("SuperLearner", "glm"), sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+    sl_lib_outcome = sl_libs, seed = 1L, reference_fit = NULL, reference_strategy = c("three_way",
+        "shared_training", "legacy"), propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip,
+    clip = 1e-04)
 }
 \arguments{
+\item{clip}{Common two-sided clipping threshold, default 1e-4. Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
+\item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
+
 \item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data}{A data frame.}
   \item{Y, A, C}{Outcome, treatment, and missingness-indicator column names.}
@@ -31,7 +29,7 @@ l2_aipw_benchmarks(
   \item{sl_lib_prop, sl_lib_miss, sl_lib_outcome}{SuperLearner libraries.}
   \item{reference_fit}{Optional zero-radius sharp or CS fit, or a sensitivity band with that fit retained. Reuses the exact full-X AIPW estimate and scores. Reduced fits inherit its folds, training strategy, learner settings, fitting seed and clipping. The analysis columns and observation order must match. Refit objects saved before version 0.4.2.}
   \item{reference_strategy}{Without a supplied fit, use the same rotating three-stage training as the default bound estimators, shared training for two-stage CS, or legacy benchmark fitting.}
-  \item{propensity_clip}{Estimated treatment probability clipping threshold. Inherited from a supplied fit.}
+
   \item{seed}{Random seed.}
 }
 \description{Compares the full-X and reduced-Z ATEs for many retained

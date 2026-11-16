@@ -280,6 +280,11 @@ l2_diagnostic_note <- function() paste(
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 l2_bounds <- function(data, Y, A, C, X,
                       delta = c(1, 1),
@@ -299,7 +304,9 @@ l2_bounds <- function(data, Y, A, C, X,
                       diagnostic_control = list(),
                       keep_nuisance = FALSE,
                       return_true_bounds = FALSE,
-                      delta_K = NULL, sl_libs = "SL.glm") {
+                      delta_K = NULL, sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   model <- match.arg(model)
   method <- match.arg(method)
   nuisance_method <- match.arg(nuisance_method)
@@ -313,8 +320,8 @@ l2_bounds <- function(data, Y, A, C, X,
   inp <- l2_validate_inputs(data, Y, A, C, X, delta, delta_R, delta_A, delta_M)
   nuisance <- if (nuisance_method == "SuperLearner") {
     l2_nuisance_sl(data, Y, A, C, X, folds, seed, sl_lib_prop,
-                   sl_lib_miss, sl_lib_outcome)
-  } else l2_nuisance_glm(data, Y, A, C, X, folds = folds, seed = seed)
+                   sl_lib_miss, sl_lib_outcome, propensity_clip = propensity_clip, response_clip = response_clip)
+  } else l2_nuisance_glm(data, Y, A, C, X, folds = folds, seed = seed, propensity_clip = propensity_clip, response_clip = response_clip)
   basis_mat <- l2_basis(data, X, basis)
 
   arm <- vector("list", 2L)
@@ -390,17 +397,19 @@ l2_bounds <- function(data, Y, A, C, X,
 
 l2_nuisance_sl <- function(data, Y, A, C, X, folds, seed,
                            sl_lib_prop, sl_lib_miss, sl_lib_outcome,
-                           family_Y = "gaussian") {
+                           family_Y = "gaussian", propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   if (!requireNamespace("SuperLearner", quietly = TRUE))
     stop("nuisance_method = 'SuperLearner' requires the SuperLearner package")
   z <- estimate_nuisance(
     X = data[, X, drop = FALSE], A = data[[A]], C = data[[C]], Y = data[[Y]],
     V = folds, sl_lib_prop = sl_lib_prop, sl_lib_miss = sl_lib_miss,
     sl_lib_outcome = sl_lib_outcome, family_Y = family_Y, seed = seed
-  )
-  list(e0 = clip_probs(1 - z$e, 1e-4), e1 = clip_probs(z$e, 1e-4),
-       rho0 = clip_probs(1 - z$pi0, 1e-4),
-       rho1 = clip_probs(1 - z$pi1, 1e-4),
+  , propensity_clip = propensity_clip, response_clip = response_clip)
+  list(e0 = clip_probs(1 - z$e, propensity_clip), e1 = clip_probs(z$e, propensity_clip),
+       rho0 = clip_probs(1 - z$pi0, response_clip),
+       rho1 = clip_probs(1 - z$pi1, response_clip),
        mu0 = z$mu0, mu1 = z$mu1, fold_id = z$fold_id)
 }
 
@@ -453,6 +462,11 @@ print.jointbounds_l2 <- function(x, ...) {
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 l2_linf_bounds <- function(data, Y, A, C, X, delta = c(1, 1),
                            delta_R_inf = c(0, 0),
@@ -463,7 +477,9 @@ l2_linf_bounds <- function(data, Y, A, C, X, delta = c(1, 1),
                            sl_lib_outcome = sl_libs, basis = NULL,
                            max_n = 1000L, seed = 1L,
                            model = c("net", "separated"),
-                           delta_M_inf = delta_R_inf, delta_K_inf = NULL, sl_libs = "SL.glm") {
+                           delta_M_inf = delta_R_inf, delta_K_inf = NULL, sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   method <- match.arg(method)
   model <- match.arg(model)
   nuisance_method <- match.arg(nuisance_method)
@@ -479,8 +495,8 @@ l2_linf_bounds <- function(data, Y, A, C, X, delta = c(1, 1),
     stop("max_n must be an integer of at least 20")
   nuisance <- if (nuisance_method == "SuperLearner") {
     l2_nuisance_sl(data, Y, A, C, X, folds, seed, sl_lib_prop,
-                   sl_lib_miss, sl_lib_outcome)
-  } else l2_nuisance_glm(data, Y, A, C, X, folds = folds, seed = seed)
+                   sl_lib_miss, sl_lib_outcome, propensity_clip = propensity_clip, response_clip = response_clip)
+  } else l2_nuisance_glm(data, Y, A, C, X, folds = folds, seed = seed, propensity_clip = propensity_clip, response_clip = response_clip)
   B <- l2_basis(data, X, basis)
   arm_rows <- list(); diagnostics <- vector("list", 2L); h <- 0L
   for (a in 0:1) {
@@ -610,7 +626,9 @@ l2_fit_predict <- function(formula, family, train, test, fallback) {
 }
 
 l2_nuisance_glm <- function(data, Y, A, C, X, folds = 5L, seed = 1L,
-                            outcome_family = stats::gaussian()) {
+                            outcome_family = stats::gaussian(), propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   n <- nrow(data)
   folds <- max(2L, min(as.integer(folds), n))
   set.seed(seed)
@@ -642,8 +660,8 @@ l2_nuisance_glm <- function(data, Y, A, C, X, folds = 5L, seed = 1L,
       else { rho1[id] <- rr; mu1[id] <- yy }
     }
   }
-  list(e0 = clip_probs(1 - e1, 1e-4), e1 = clip_probs(e1, 1e-4),
-       rho0 = clip_probs(rho0, 1e-4), rho1 = clip_probs(rho1, 1e-4),
+  list(e0 = clip_probs(1 - e1, propensity_clip), e1 = clip_probs(e1, propensity_clip),
+       rho0 = clip_probs(rho0, response_clip), rho1 = clip_probs(rho1, response_clip),
        mu0 = mu0, mu1 = mu1, fold_id = fold)
 }
 
@@ -1156,6 +1174,11 @@ l2_oracle_cs <- function(data, delta, delta_R, delta_A, delta_M, model) {
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
                                 delta = c(1, 1), model = c("net", "separated"),
@@ -1165,7 +1188,9 @@ l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
                                 sl_lib_miss = sl_libs,
                                 sl_lib_outcome = sl_libs,
                                 basis = NULL, seed = 1L, control = list(),
-                                diagnostic_control = list(), sl_libs = "SL.glm") {
+                                diagnostic_control = list(), sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   model <- match.arg(model); method <- match.arg(method)
   nuisance_method <- match.arg(nuisance_method)
   diagnostic_control <- l2_diagnostic_control(diagnostic_control,
@@ -1196,7 +1221,8 @@ l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
                      sl_lib_prop = sl_lib_prop, sl_lib_miss = sl_lib_miss,
                      sl_lib_outcome = sl_lib_outcome,
                      seed = seed, control = control,
-                     diagnostic_control = quiet_diagnostics)
+                     diagnostic_control = quiet_diagnostics,
+                     propensity_clip = propensity_clip, response_clip = response_clip)
     z <- fit$ate
     z$grid_id <- i
     sm <- fit$diagnostic_summary
@@ -1529,6 +1555,11 @@ l2_calibrate <- function(R = NULL, K = NULL, M = NULL, weights = NULL,
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 l2_bootstrap <- function(data, Y, A, C, X,
                          delta = c(1, 1), delta_R = c(0, 0),
@@ -1540,7 +1571,9 @@ l2_bootstrap <- function(data, Y, A, C, X,
                          sl_lib_outcome = sl_libs,
                          basis = NULL, seed = 1L, control = list(),
                          B = 200L, conf_level = 0.95,
-                         delta_K = NULL, sl_libs = "SL.glm") {
+                         delta_K = NULL, sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   model <- match.arg(model); method <- match.arg(method)
   nuisance_method <- match.arg(nuisance_method)
   if (!is.null(delta_K)) delta_A <- delta_K
@@ -1554,7 +1587,7 @@ l2_bootstrap <- function(data, Y, A, C, X,
                         nuisance_method = nuisance_method,
                         sl_lib_prop = sl_lib_prop, sl_lib_miss = sl_lib_miss,
                         sl_lib_outcome = sl_lib_outcome,
-                        seed = seed, control = control)
+                        seed = seed, control = control, propensity_clip = propensity_clip, response_clip = response_clip)
   set.seed(seed)
   seeds <- sample.int(.Machine$integer.max, B)
   reps <- matrix(NA_real_, B, 2L, dimnames = list(NULL, c("lower", "upper")))
@@ -1569,7 +1602,7 @@ l2_bootstrap <- function(data, Y, A, C, X,
                           basis = basis, seed = seeds[b],
                          control = control,
                          diagnostic_control = list(warn = FALSE,
-                           compute_hessian = FALSE)), silent = TRUE)
+                           compute_hessian = FALSE), propensity_clip = propensity_clip, response_clip = response_clip), silent = TRUE)
     if (!inherits(fit, "try-error")) reps[b, ] <- unlist(fit$ate[1, c("lower", "upper")])
   }
   ok <- stats::complete.cases(reps)

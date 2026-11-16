@@ -1,3 +1,8 @@
+# jointbounds 0.4.4
+
+- Added `response_clip` and shared `clip` arguments to L2 and AIPW estimators and wrappers. Explicit treatment/response overrides take precedence; existing defaults are preserved.
+- Both thresholds propagate through nuisance fitting, grids, bootstrap fits, and reference reuse. Oracle simulation references retain their original clipping.
+
 # jointbounds 0.4.3
 
 - Added common `sl_libs` across learner interfaces, retaining individual model overrides.

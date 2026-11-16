@@ -26,12 +26,19 @@
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 l2_frontier_direct <- function(data, Y, A, C, X, delta_M = 0, target = 0,
     basis = NULL, folds = 5L, nuisance_method = c("SuperLearner", "glm"),
     sl_lib_prop = sl_libs, sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs,
     seed = 1L, nuisance = NULL, solver = NULL, solver_control = list(),
-    feasibility_tol = 1e-5, sl_libs = "SL.glm") {
+    feasibility_tol = 1e-5, sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   if (!requireNamespace("CVXR", quietly = TRUE))
     stop("Direct frontier optimization requires the suggested package CVXR")
   nuisance_method <- match.arg(nuisance_method)
@@ -48,8 +55,8 @@ l2_frontier_direct <- function(data, Y, A, C, X, delta_M = 0, target = 0,
                             c(0, 0), delta_M)
   if (is.null(nuisance)) nuisance <- if (nuisance_method == "SuperLearner")
     l2_nuisance_sl(data, Y, A, C, X, folds, seed, sl_lib_prop,
-                  sl_lib_miss, sl_lib_outcome) else
-    l2_nuisance_glm(data, Y, A, C, X, folds, seed)
+                  sl_lib_miss, sl_lib_outcome, propensity_clip = propensity_clip, response_clip = response_clip) else
+    l2_nuisance_glm(data, Y, A, C, X, folds, seed, propensity_clip = propensity_clip, response_clip = response_clip)
   n <- nrow(data)
   for (nm in c("e0", "e1", "rho0", "rho1", "mu0", "mu1")) {
     if (length(nuisance[[nm]]) != n || any(!is.finite(nuisance[[nm]])))

@@ -476,3 +476,25 @@ Neither interpolation establishes between-grid coverage. Missing crossings remai
 gaps, without extrapolation. Overlaying bands does not create simultaneous
 coverage across benchmarks: request `simultaneous_scope = "all_benchmarks"`
 when constructing the calibration band.
+
+
+### Treatment and response probability clipping
+
+L2 estimators and their grid, band, and benchmark wrappers accept `clip = 1e-4`
+by default. Both fitted probabilities are restricted to `[clip, 1-clip]`.
+Override either mechanism independently:
+
+```r
+# Add to l2_sensitivity_band(), l2_sharp_crossfit(), l2_cs_crossfit(),
+# l2_bounds(), l2_sensitivity_grid(), or l2_aipw_benchmarks():
+# clip = 0.01                           # both thresholds 0.01
+# clip = 0.01, response_clip = 0.02     # treatment 0.01, response 0.02
+# propensity_clip = 0.01               # response retains its default 1e-4
+```
+
+These arguments also work with `generate_ate()`; its existing `trim` argument
+remains the default for `clip`. Each threshold must be a finite number strictly
+between zero and 0.5. Clipping removes no observations. It stabilizes inverse
+weights but may introduce bias when true probabilities fall outside the selected
+interval. `reference_fit` reuse inherits both thresholds, keeping full and reduced
+benchmark fits consistent. Older reference objects used response clipping at 1e-4.

@@ -2,33 +2,25 @@
 \alias{l2_cs_crossfit}
 \title{Cross-fitted plug-in and EIF estimators of L2 CS outer bounds}
 \usage{
-l2_cs_crossfit(
-  data, Y, A, C, X, delta = c(1, 1), delta_R = c(0.2, 0.2),
-  delta_A = c(0.2, 0.2), delta_M = delta_R,
-  model = c("net", "separated"), folds = 5L,
-  nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
-  sl_lib_outcome = sl_libs, seed = 1L, conf_level = 0.95,
-  nuisance_source = c("estimated", "oracle_error"),
-  nuisance_error_rate = 0.25, nuisance_error_scale = 1,
-  nuisance_error_sign = c(e = 1, rho = -1, regression = 1),
-  delta_K = NULL, propensity_clip = 1e-4,
-  moment_strategy = c("three_way", "shared_training"),
-  sl_libs = "SL.glm")
+l2_cs_crossfit (data, Y, A, C, X, delta = c(1, 1), delta_R = c(0.2, 0.2), delta_A = c(0.2, 0.2),
+    delta_M = delta_R, model = c("net", "separated"), folds = 5L, nuisance_method = c("SuperLearner",
+        "glm"), sl_lib_prop = sl_libs, sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs, seed = 1L,
+    conf_level = 0.95, nuisance_source = c("estimated", "oracle_error"), nuisance_error_rate = 0.25,
+    nuisance_error_scale = 1, nuisance_error_sign = c(e = 1, rho = -1, regression = 1), delta_K = NULL,
+    propensity_clip = clip, moment_strategy = c("three_way", "shared_training"), sl_libs = "SL.glm",
+    response_clip = clip, clip = 1e-04)
 }
 \arguments{
+\item{clip}{Common two-sided clipping threshold, default 1e-4. Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
+\item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
+
 \item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{moment_strategy}{The default \code{"three_way"} fits structural nuisances,
   residual-moment regressions, and evaluation scores on disjoint folds (at least
   three). \code{"shared_training"} reproduces the earlier implementation,
   reusing structural training observations for residual regressions; this
   requires additional stability assumptions. Ignored in oracle-error mode.}
-  \item{propensity_clip}{Estimated treatment probabilities are clipped to
-  \code{[propensity_clip, 1 - propensity_clip]} before optimization and score
-  evaluation. Must lie strictly between zero and one half. The default
-  \code{1e-4} preserves previous behavior; use \code{0.01} for the paper's
-  clipped simulation comparison. Response probabilities and oracle reference
-  targets are unchanged.}
+
   \item{data, Y, A, C, X, delta, delta_R, delta_A, delta_K, delta_M, model, folds,
   nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed}{As in
   \code{l2_bounds()}.}

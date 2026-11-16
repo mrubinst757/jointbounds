@@ -18,6 +18,11 @@
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
 #'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#' @param clip Common two-sided probability clipping threshold. Each probability
+#'   is restricted to `[clip, 1-clip]`. No observations are removed.
+#' @param propensity_clip,response_clip Override `clip` for treatment and
+#'   response probabilities, respectively. Thresholds must lie strictly between
+#'   zero and one half. Reference fits supply both thresholds when reused.
 #' @export
 l2_prevalence_bounds <- function(data, Y, A, C, X,
                                  estimand = c("composite", "sde"),
@@ -26,7 +31,9 @@ l2_prevalence_bounds <- function(data, Y, A, C, X,
                                  sl_lib_prop = sl_libs,
                                  sl_lib_miss = sl_libs,
                                  sl_lib_outcome = sl_libs, seed = 1L,
-                                 conf_level = .95, keep_nuisance = FALSE, sl_libs = "SL.glm") {
+                                 conf_level = .95, keep_nuisance = FALSE, sl_libs = "SL.glm", propensity_clip = clip, response_clip = clip, clip = 1e-4) {
+  l2_validate_propensity_clip(propensity_clip)
+  l2_validate_propensity_clip(response_clip, "response_clip")
   estimand <- match.arg(estimand)
   nuisance_method <- match.arg(nuisance_method)
   kappa <- l2_as_pair(kappa, "kappa", 1)
@@ -39,9 +46,9 @@ l2_prevalence_bounds <- function(data, Y, A, C, X,
     stop("conf_level must lie strictly between zero and one")
   nuisance <- if (nuisance_method == "SuperLearner") {
     l2_nuisance_sl(data, Y, A, C, X, folds, seed, sl_lib_prop,
-      sl_lib_miss, sl_lib_outcome, family_Y = "binomial")
+      sl_lib_miss, sl_lib_outcome, family_Y = "binomial", propensity_clip = propensity_clip, response_clip = response_clip)
   } else l2_nuisance_glm(data, Y, A, C, X, folds, seed,
-                         outcome_family = stats::binomial())
+                         outcome_family = stats::binomial(), propensity_clip = propensity_clip, response_clip = response_clip)
   for (a in 0:1) nuisance[[paste0("mu", a)]] <-
     pmin(1, pmax(0, nuisance[[paste0("mu", a)]]))
   n <- nrow(data); y <- inp$y; y[!is.finite(y)] <- 0
