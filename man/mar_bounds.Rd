@@ -37,7 +37,8 @@ mar_bounds(
   grid_bounds = c("both", "lower", "upper"),
   alpha = 0.05,
   B = 1000,
-  multiplier = c("rademacher", "gaussian")
+  multiplier = c("rademacher", "gaussian"),
+  sl_libs = sl_lib
 )
 }
 \arguments{
@@ -117,6 +118,10 @@ confidence intervals over the grid (default 0.05).}
 
 \item{multiplier}{Multiplier distribution for the bootstrap: \code{"rademacher"}
 (default) or \code{"gaussian"}.}
+
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions.
+Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+it for treatment, missingness, and outcome (including pseudo-outcome) models.}
 }
 \value{
 A list with components: \code{naive} (naive estimate assuming MAR), \code{lower}, \code{upper} (for bounds), or \code{estimate} (for point ID), with \code{se_*} or \code{se} and optional \code{nuisance}, \code{phi} for downstream use.

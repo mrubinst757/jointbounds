@@ -255,7 +255,13 @@ l2_diagnostic_note <- function() paste(
 #' @param nuisance_method Either `"SuperLearner"` (default) or `"glm"`.
 #' @param sl_lib_prop,sl_lib_miss,sl_lib_outcome SuperLearner libraries for the
 #'   treatment, observation, and continuous-outcome regressions.
-#' @param basis Optional formula used for conditional-normalization multipliers.
+#' @param basis One-sided formula for the sharp finite-basis approximation.
+#'   NULL uses an intercept plus additive covariates in X: normalization and
+#'   mean balance (indicator balance for categorical covariates). For example,
+#'   `~ X1 + X2 + I(X1^2) + X1:X2` or `~ splines::ns(X1, df = 3) + X2`.
+#'   Only covariates in X are allowed; an intercept is required. Dot means X.
+#'   Cross-fitting learns transformations and scaling on the training fold.
+#'   Richer bases impose more balance restrictions but can make fitting harder.
 #' @param seed Random seed used to construct folds.
 #' @param control Optional list passed to the empirical dual optimizer.
 #' @param diagnostic_control Optional list controlling sharp-solver diagnostics.
@@ -271,6 +277,9 @@ l2_diagnostic_note <- function() paste(
 #'
 #' @return An object of class `jointbounds_l2` containing arm-specific and ATE
 #'   bounds, observed reference means, diagnostics, and sensitivity parameters.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_bounds <- function(data, Y, A, C, X,
                       delta = c(1, 1),
@@ -281,16 +290,16 @@ l2_bounds <- function(data, Y, A, C, X,
                       method = c("both", "cs", "sharp"),
                       folds = 5L,
                       nuisance_method = c("SuperLearner", "glm"),
-                      sl_lib_prop = "SL.glm",
-                      sl_lib_miss = "SL.glm",
-                      sl_lib_outcome = "SL.glm",
+                      sl_lib_prop = sl_libs,
+                      sl_lib_miss = sl_libs,
+                      sl_lib_outcome = sl_libs,
                       basis = NULL,
                       seed = 1L,
                       control = list(),
                       diagnostic_control = list(),
                       keep_nuisance = FALSE,
                       return_true_bounds = FALSE,
-                      delta_K = NULL) {
+                      delta_K = NULL, sl_libs = "SL.glm") {
   model <- match.arg(model)
   method <- match.arg(method)
   nuisance_method <- match.arg(nuisance_method)
@@ -441,17 +450,20 @@ print.jointbounds_l2 <- function(x, ...) {
 #' @param max_n Maximum number of respondent observations per arm in the sharp
 #'   linear program.  The outer bound always uses the full sample.
 #' @return An object with arm-specific and ATE bounds and sharp-LP diagnostics.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_linf_bounds <- function(data, Y, A, C, X, delta = c(1, 1),
                            delta_R_inf = c(0, 0),
                            delta_A_inf = c(0, 0),
                            method = c("both", "outer", "sharp"), folds = 5L,
                            nuisance_method = c("SuperLearner", "glm"),
-                           sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-                           sl_lib_outcome = "SL.glm", basis = NULL,
+                           sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+                           sl_lib_outcome = sl_libs, basis = NULL,
                            max_n = 1000L, seed = 1L,
                            model = c("net", "separated"),
-                           delta_M_inf = delta_R_inf, delta_K_inf = NULL) {
+                           delta_M_inf = delta_R_inf, delta_K_inf = NULL, sl_libs = "SL.glm") {
   method <- match.arg(method)
   model <- match.arg(model)
   nuisance_method <- match.arg(nuisance_method)
@@ -635,19 +647,25 @@ l2_nuisance_glm <- function(data, Y, A, C, X, folds = 5L, seed = 1L,
        mu0 = mu0, mu1 = mu1, fold_id = fold)
 }
 
+l2_basis_formula <- function(X, basis) {
+  if (is.null(basis)) basis <- if (length(X))
+    stats::reformulate(paste0("`", X, "`")) else ~ 1
+  if (!inherits(basis, "formula") || length(basis) != 2L)
+    stop("basis must be a one-sided formula, such as ~ X1 + I(X1^2) + X2")
+  # Expand dot using only the named adjustment covariates.
+  if ("." %in% all.names(basis)) {
+    schema <- as.data.frame(setNames(rep(list(numeric()), length(X)), X))
+    basis <- stats::formula(stats::terms(basis, data = schema))
+  }
+  if (!all(all.vars(basis) %in% X))
+    stop("basis may only refer to covariates listed in X")
+  if (attr(stats::terms(basis), "intercept") != 1L)
+    stop("basis must include an intercept to preserve normalization")
+  basis
+}
+
 l2_basis <- function(data, X, basis) {
-  if (is.null(basis)) {
-    if (!length(X)) return(matrix(1, nrow(data), 1L, dimnames = list(NULL, "(Intercept)")))
-    basis <- stats::as.formula(paste("~", paste(X, collapse = " + ")))
-  }
-  B <- stats::model.matrix(basis, data = data)
-  for (j in seq_len(ncol(B))) {
-    if (colnames(B)[j] != "(Intercept)") {
-      s <- stats::sd(B[, j])
-      if (is.finite(s) && s > 0) B[, j] <- (B[, j] - mean(B[, j])) / s
-    }
-  }
-  B
+  l2_basis_split(data, X, basis, seq_len(nrow(data)), seq_len(nrow(data)))$train
 }
 
 l2_reference_quantities <- function(y, A, C, a, nuisance) {
@@ -1135,16 +1153,19 @@ l2_oracle_cs <- function(data, delta, delta_R, delta_A, delta_M, model) {
 #' @return An object of class `jointbounds_l2_grid` with one ATE row per method
 #'   and grid point, endpoint-level diagnostics for every sharp-bound fit, and
 #'   one diagnostic summary row per sensitivity-parameter pair.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_sensitivity_grid <- function(data, Y, A, C, X, grid,
                                 delta = c(1, 1), model = c("net", "separated"),
                                 method = c("both", "cs", "sharp"), folds = 5L,
                                 nuisance_method = c("SuperLearner", "glm"),
-                                sl_lib_prop = "SL.glm",
-                                sl_lib_miss = "SL.glm",
-                                sl_lib_outcome = "SL.glm",
+                                sl_lib_prop = sl_libs,
+                                sl_lib_miss = sl_libs,
+                                sl_lib_outcome = sl_libs,
                                 basis = NULL, seed = 1L, control = list(),
-                                diagnostic_control = list()) {
+                                diagnostic_control = list(), sl_libs = "SL.glm") {
   model <- match.arg(model); method <- match.arg(method)
   nuisance_method <- match.arg(nuisance_method)
   diagnostic_control <- l2_diagnostic_control(diagnostic_control,
@@ -1505,6 +1526,9 @@ l2_calibrate <- function(R = NULL, K = NULL, M = NULL, weights = NULL,
 #' @param conf_level Confidence level for percentile intervals.
 #' @return A list containing the original fit, bootstrap replicates, standard
 #'   errors, and percentile confidence intervals for each ATE endpoint.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_bootstrap <- function(data, Y, A, C, X,
                          delta = c(1, 1), delta_R = c(0, 0),
@@ -1512,11 +1536,11 @@ l2_bootstrap <- function(data, Y, A, C, X,
                          model = c("net", "separated"),
                          method = c("cs", "sharp"), folds = 5L,
                          nuisance_method = c("SuperLearner", "glm"),
-                         sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-                         sl_lib_outcome = "SL.glm",
+                         sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+                         sl_lib_outcome = sl_libs,
                          basis = NULL, seed = 1L, control = list(),
                          B = 200L, conf_level = 0.95,
-                         delta_K = NULL) {
+                         delta_K = NULL, sl_libs = "SL.glm") {
   model <- match.arg(model); method <- match.arg(method)
   nuisance_method <- match.arg(nuisance_method)
   if (!is.null(delta_K)) delta_A <- delta_K

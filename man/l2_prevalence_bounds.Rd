@@ -6,12 +6,13 @@ l2_prevalence_bounds(
   data, Y, A, C, X, estimand = c("composite", "sde"),
   kappa = c(0, 0), folds = 5L,
   nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm", seed = 1L, conf_level = 0.95,
-  keep_nuisance = FALSE
-)
+  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+  sl_lib_outcome = sl_libs, seed = 1L, conf_level = 0.95,
+  keep_nuisance = FALSE,
+  sl_libs = "SL.glm")
 }
 \arguments{
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data, Y, A, C, X, folds, nuisance_method, sl_lib_prop, sl_lib_miss,
   sl_lib_outcome, seed}{As in \code{l2_bounds()}; Y must be binary.}
   \item{estimand}{The composite effect or separable direct effect.}

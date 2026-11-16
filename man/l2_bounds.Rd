@@ -7,14 +7,15 @@ l2_bounds(data, Y, A, C, X, delta = c(1, 1),
   delta_R = c(0, 0), delta_A = c(0, 0), delta_M = delta_R,
   model = c("net", "separated"), method = c("both", "cs", "sharp"),
   folds = 5L, nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm", basis = NULL, seed = 1L,
+  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+  sl_lib_outcome = sl_libs, basis = NULL, seed = 1L,
   control = list(), diagnostic_control = list(), keep_nuisance = FALSE,
-  return_true_bounds = FALSE, delta_K = NULL)
+  return_true_bounds = FALSE, delta_K = NULL, sl_libs = "SL.glm")
 
 \method{print}{jointbounds_l2}(x, ...)
 }
 \arguments{
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data}{A data frame.}
   \item{Y, A, C}{Column names. A and C are binary and C = 1 denotes missing.}
   \item{X}{Character vector of baseline covariate names.}
@@ -27,7 +28,7 @@ l2_bounds(data, Y, A, C, X, delta = c(1, 1),
   \item{folds}{Number of folds for cross-fitted nuisance estimation.}
   \item{nuisance_method}{Cross-fitted SuperLearner or GLM nuisance estimation.}
   \item{sl_lib_prop, sl_lib_miss, sl_lib_outcome}{SuperLearner libraries for treatment, missingness, and continuous-outcome regressions.}
-  \item{basis}{Optional formula for the conditional-normalization sieve.}
+  \item{basis}{One-sided formula for the sharp approximation. NULL balances an intercept and additive covariates in X (means for numeric covariates; indicators for factors). For example, \code{~ X1 + X2 + I(X1^2) + X1:X2} or \code{~ splines::ns(X1, df = 3) + X2}. Only X covariates are allowed; an intercept is required; dot expands to X. Cross-fitting learns transformations and scaling on training folds.}
   \item{seed}{Random seed for fold construction.}
   \item{control}{Control list passed to \code{optim()} for sharp bounds.}
   \item{diagnostic_control}{Optional list controlling sharp-solver

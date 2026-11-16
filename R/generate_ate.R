@@ -33,19 +33,22 @@
 #'   cross-fitted AIPW estimate, standard error, and Wald interval; `arm`
 #'   contains the corresponding potential-outcome means. Centered influence
 #'   scores and positivity diagnostics are also returned.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 generate_ate <- function(data, Y, A, C, X,
                          folds = 5L,
                          nuisance_method = c("SuperLearner", "glm"),
-                         sl_lib_prop = "SL.glm",
-                         sl_lib_miss = "SL.glm",
-                         sl_lib_outcome = "SL.glm",
+                         sl_lib_prop = sl_libs,
+                         sl_lib_miss = sl_libs,
+                         sl_lib_outcome = sl_libs,
                          outcome_family = c("gaussian", "binomial"),
                          seed = 1L,
                          trim = 1e-4,
                          conf_level = .95,
                          diagnostic_control = list(),
-                         keep_nuisance = FALSE) {
+                         keep_nuisance = FALSE, sl_libs = "SL.glm") {
   nuisance_method <- match.arg(nuisance_method)
   outcome_family <- match.arg(outcome_family)
   if (!is.data.frame(data)) stop("data must be a data.frame")

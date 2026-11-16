@@ -39,6 +39,9 @@
 #'   confidence intervals, fold diagnostics, and row-level influence scores.
 #' @details `influence_covariance` and `estimate_covariance` give joint
 #'   lower/upper covariance matrices by estimator, before and after division by n.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_sharp_crossfit <- function(data, Y, A, C, X,
                               delta = c(1, 1), delta_R = c(.2, .2),
@@ -46,9 +49,9 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                               model = c("net", "separated"), folds = 5L,
                               basis = NULL,
                               nuisance_method = c("SuperLearner", "glm"),
-                              sl_lib_prop = "SL.glm",
-                              sl_lib_miss = "SL.glm",
-                              sl_lib_outcome = "SL.glm",
+                              sl_lib_prop = sl_libs,
+                              sl_lib_miss = sl_libs,
+                              sl_lib_outcome = sl_libs,
                               seed = 1L, control = list(),
                               diagnostic_control = list(),
                               conf_level = .95, boundary_tol = 1e-7,
@@ -57,7 +60,7 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                               nuisance_error_scale = 1,
                               nuisance_error_sign = c(e = 1, rho = -1,
                                                       regression = 1),
-                              delta_K = NULL, propensity_clip = 1e-4) {
+                              delta_K = NULL, propensity_clip = 1e-4, sl_libs = "SL.glm") {
   l2_validate_propensity_clip(propensity_clip)
   nuisance_method <- match.arg(nuisance_method)
   nuisance_source <- match.arg(nuisance_source)
@@ -365,14 +368,28 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
 }
 
 l2_basis_split <- function(data, X, basis, tr, te) {
-  if (is.null(basis)) basis <- if (length(X))
-    stats::as.formula(paste("~", paste(X, collapse = " + "))) else ~ 1
-  B <- stats::model.matrix(basis, data = data)
+  basis <- l2_basis_formula(X, basis)
+  train <- stats::model.frame(basis, data = data[tr, , drop = FALSE],
+                             na.action = stats::na.fail)
+  # Keep training levels when model.matrix would otherwise refactor characters.
+  for (nm in names(train)) if (is.character(train[[nm]]))
+    train[[nm]] <- factor(train[[nm]])
+  tt <- attr(train, "terms")
+  levels <- lapply(train[vapply(train, is.factor, logical(1))], base::levels)
+  test <- stats::model.frame(tt, data = data[te, , drop = FALSE],
+                            xlev = levels, na.action = stats::na.fail)
+  B <- stats::model.matrix(tt, train)
+  E <- stats::model.matrix(tt, test, contrasts.arg = attr(B, "contrasts"))
+  if (!identical(colnames(B), colnames(E)) ||
+      any(!is.finite(B)) || any(!is.finite(E)))
+    stop("basis must produce matching finite columns in training and evaluation data")
   for (j in seq_len(ncol(B))) if (colnames(B)[j] != "(Intercept)") {
-    cen <- mean(B[tr, j]); sc <- stats::sd(B[tr, j]); if (!is.finite(sc) || sc == 0) sc <- 1
+    cen <- mean(B[, j]); sc <- stats::sd(B[, j])
+    if (!is.finite(sc) || sc == 0) sc <- 1
     B[, j] <- (B[, j] - cen) / sc
+    E[, j] <- (E[, j] - cen) / sc
   }
-  list(train = B[tr, , drop = FALSE], test = B[te, , drop = FALSE])
+  list(train = B, test = E)
 }
 
 l2_learner_predict <- function(y, xtrain, xnew, family, method, library) {

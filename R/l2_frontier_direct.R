@@ -23,12 +23,15 @@
 #'   empirical measure and basis constraints as `l2_bounds(method = "sharp")`.
 #'   The optional CVXR package is required. Conditional normalization is relaxed
 #'   to finite-basis balance, so this computes an empirical sieve frontier.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_frontier_direct <- function(data, Y, A, C, X, delta_M = 0, target = 0,
     basis = NULL, folds = 5L, nuisance_method = c("SuperLearner", "glm"),
-    sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm", sl_lib_outcome = "SL.glm",
+    sl_lib_prop = sl_libs, sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs,
     seed = 1L, nuisance = NULL, solver = NULL, solver_control = list(),
-    feasibility_tol = 1e-5) {
+    feasibility_tol = 1e-5, sl_libs = "SL.glm") {
   if (!requireNamespace("CVXR", quietly = TRUE))
     stop("Direct frontier optimization requires the suggested package CVXR")
   nuisance_method <- match.arg(nuisance_method)

@@ -125,7 +125,9 @@ l2_multiplier_band <- function(fits, estimator = NULL, B = 1000L,
 #' @param multiplier Multiplier distribution.
 #' @param keep_fits Retain the potentially large list of pointwise fits.
 #' @param ... Additional arguments passed to `l2_cs_crossfit()` or
-#'   `l2_sharp_crossfit()`.
+#'   `l2_sharp_crossfit()`. For example, `sl_libs` supplies a common learner
+#'   library, model-specific library arguments override it, and `basis` sets
+#'   the sharp balance formula (NULL balances covariate means).
 #' @return A multiplier-band object augmented with the sensitivity grid.
 #' @export
 l2_sensitivity_band <- function(data, Y, A, C, X, grid,

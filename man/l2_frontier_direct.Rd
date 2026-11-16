@@ -15,14 +15,15 @@ l2_frontier_direct(
   basis = NULL,
   folds = 5L,
   nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = "SL.glm",
-  sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm",
+  sl_lib_prop = sl_libs,
+  sl_lib_miss = sl_libs,
+  sl_lib_outcome = sl_libs,
   seed = 1L,
   nuisance = NULL,
   solver = NULL,
   solver_control = list(),
-  feasibility_tol = 1e-05
+  feasibility_tol = 1e-05,
+  sl_libs = "SL.glm"
 )
 }
 \arguments{
@@ -37,7 +38,7 @@ l2_frontier_direct(
 \item{target}{A finite ATE target. Zero gives tipping. Supply a signed or
 toward-zero calibration target on the estimand scale for calibration.}
 
-\item{basis}{Optional formula used for conditional-normalization multipliers.}
+\item{basis}{One-sided formula for the sharp approximation. NULL balances an intercept and additive covariates in X (means for numeric covariates; indicators for factors). For example, \code{~ X1 + X2 + I(X1^2) + X1:X2} or \code{~ splines::ns(X1, df = 3) + X2}. Only X covariates are allowed; an intercept is required; dot expands to X. Cross-fitting learns transformations and scaling on training folds.}
 
 \item{folds}{Number of cross-fitting folds for nuisance estimation.}
 
@@ -57,6 +58,10 @@ If NULL, nuisances are estimated with the usual cross-fitting helpers.}
 \item{solver_control}{Named list of additional arguments to `CVXR::solve()`.}
 
 \item{feasibility_tol}{Tolerance for the reported constraint residual check.}
+
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions.
+Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+it for treatment, missingness, and outcome (including pseudo-outcome) models.}
 }
 \value{
 A list with `radius` (common delta_K), `squared_radius`, solver

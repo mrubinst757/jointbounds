@@ -4,15 +4,37 @@
 \alias{plot.jointbounds_l2_calibration_band}
 \title{Plot calibration-frontier confidence bands}
 \usage{
-\method{plot}{jointbounds_l2_calibration_band}(x, ...)
+\method{plot}{jointbounds_l2_calibration_band}(
+  x,
+  ...,
+  uncertainty = "both",
+  interpolate = TRUE,
+  facet = TRUE,
+  points = TRUE
+)
 }
 \arguments{
-\item{x}{Output from `l2_calibration_band()`.}
+\item{x}{Output from `l2_calibration_band()`, `l2_tipping_band()`,
+`l2_benchmark_frontiers()`, or `l2_tipping_frontier()`.}
 
 \item{...}{Additional arguments currently ignored.}
+
+\item{uncertainty}{Confidence limits to display: `"simultaneous"`,
+`"pointwise"`, `"both"`, or `"none"`. Defaults to simultaneous for band
+objects and none for point-only frontier objects.}
+
+\item{interpolate}{Connect adjacent finite frontier points and interval
+endpoints by straight lines. FALSE shows only grid points and error bars.
+This controls display along the horizontal radius; use `interpolate` in
+`l2_calibration_band()` or `l2_tipping_band()` to interpolate crossings
+along the vertical radius before plotting.}
+
+\item{facet}{Show one panel per benchmark/method instead of overlaying curves.}
+
+\item{points}{Mark evaluated horizontal grid radii.}
 }
 \value{
-A `ggplot2` object.
+A ggplot object.
 }
 \description{
 Plot calibration-frontier confidence bands

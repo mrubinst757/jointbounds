@@ -27,15 +27,18 @@ l2_quiet_superlearner <- function(...) {
 #' @param family_Y Character; family for outcome model ("gaussian" or "binomial"). Default "gaussian".
 #' @param seed Optional seed for fold splits.
 #' @return List with components: e, pi0, pi1, mu0, mu1 (each length n), and fold_id (fold index per row).
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 estimate_nuisance <- function(X, A, C, Y,
                               V = 2,
-                              sl_lib_prop = "SL.glm",
-                              sl_lib_miss = "SL.glm",
-                              sl_lib_outcome = "SL.glm",
+                              sl_lib_prop = sl_libs,
+                              sl_lib_miss = sl_libs,
+                              sl_lib_outcome = sl_libs,
                               stratify_mu = TRUE,
                               family_Y = "gaussian",
-                              seed = NULL) {
+                              seed = NULL, sl_libs = "SL.glm") {
   if (!requireNamespace("SuperLearner", quietly = TRUE)) {
     stop("Package 'SuperLearner' is required. Install with install.packages('SuperLearner').")
   }

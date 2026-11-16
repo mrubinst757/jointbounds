@@ -6,9 +6,9 @@
 l2_sensitivity_grid(data, Y, A, C, X, grid, delta = c(1, 1),
   model = c("net", "separated"), method = c("both", "cs", "sharp"),
   folds = 5L, nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm", basis = NULL, seed = 1L,
-  control = list(), diagnostic_control = list())
+  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+  sl_lib_outcome = sl_libs, basis = NULL, seed = 1L,
+  control = list(), diagnostic_control = list(), sl_libs = "SL.glm")
 
 \method{print}{jointbounds_l2_grid}(x, ...)
 
@@ -17,6 +17,7 @@ l2_tipping_frontier(x, threshold = 0, endpoint = c("both", "lower", "upper"), pl
 \method{plot}{jointbounds_l2_frontier}(x, ...)
 }
 \arguments{
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data, Y, A, C, X, delta, model, method, folds, nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, basis, seed, control, diagnostic_control}{As in \code{l2_bounds()}.}
   \item{grid}{Data frame containing delta_M and delta_K for the primary net model, or delta_R and delta_K for the separated model. Legacy delta_A is accepted. Arm-specific columns may use suffixes _0 and _1.}
   \item{x}{A grid object or its results data frame.}

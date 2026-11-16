@@ -60,6 +60,9 @@
 #' @return A list with components: \code{naive} (naive estimate assuming MAR), \code{lower}, \code{upper} (for bounds), or \code{estimate} (for point ID), with \code{se_*} or \code{se} and optional \code{nuisance}, \code{phi} for downstream use.
 #'   \code{result} contains a convenient dataframe summary: for scalar results, it includes the estimates and confidence intervals; for grid results (\code{param_grid} provided), it contains the combined grid output in long format with \code{bound_type} column for bounds.
 #'   When \code{param_grid} is provided, the list also contains \code{lower_grid}, \code{upper_grid}, and/or \code{estimate_grid} as separate list objects with pointwise and uniform inference.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 mar_bounds <- function(data,
                        Y,
@@ -91,7 +94,7 @@ mar_bounds <- function(data,
                        grid_bounds = c("both", "lower", "upper"),
                        alpha = 0.05,
                        B = 1000,
-                       multiplier = c("rademacher", "gaussian")) {
+                       multiplier = c("rademacher", "gaussian"), sl_libs = sl_lib) {
   estimand <- match.arg(estimand)
   assumption <- match.arg(assumption)
   grid_bounds <- match.arg(grid_bounds)
@@ -112,9 +115,9 @@ mar_bounds <- function(data,
   }
 
   # Resolve SuperLearner libraries: default to sl_lib when not provided
-  if (is.null(sl_lib_prop)) sl_lib_prop <- sl_lib
-  if (is.null(sl_lib_miss)) sl_lib_miss <- sl_lib
-  if (is.null(sl_lib_outcome)) sl_lib_outcome <- sl_lib
+  if (is.null(sl_lib_prop)) sl_lib_prop <- sl_libs
+  if (is.null(sl_lib_miss)) sl_lib_miss <- sl_libs
+  if (is.null(sl_lib_outcome)) sl_lib_outcome <- sl_libs
 
   prep <- prepare_data(data, Y, A, C, X)
   Y_vec <- prep$Y_vec

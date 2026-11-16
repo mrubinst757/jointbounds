@@ -8,13 +8,14 @@ l2_aipw_benchmarks(
   estimator = c("both", "aipw", "plugin"), variance = FALSE,
   conf_level = 0.95, folds = 5L,
   nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm", seed = 1L, reference_fit = NULL,
+  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+  sl_lib_outcome = sl_libs, seed = 1L, reference_fit = NULL,
   reference_strategy = c("three_way", "shared_training", "legacy"),
-  propensity_clip = 1e-4
-)
+  propensity_clip = 1e-4,
+  sl_libs = "SL.glm")
 }
 \arguments{
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data}{A data frame.}
   \item{Y, A, C}{Outcome, treatment, and missingness-indicator column names.}
   \item{X}{Character vector containing the full covariate set.}

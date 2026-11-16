@@ -1,6 +1,7 @@
 #' Cross-fitted plug-in and EIF estimators of the L2 CS outer bounds
 #'
 #' @inheritParams l2_sharp_crossfit
+#' @description
 #' When `nuisance_source = "oracle_error"`, treatment, response, outcome-
 #' regression, and conditional residual-moment nuisances are directly
 #' perturbed. No regressions or cross-fitting are used in that simulation mode.
@@ -20,6 +21,9 @@
 #'   sufficient regularity conditions and any truncation to zero. Such flags
 #'   mean ordinary EIF intervals are not justified by the smooth expansion.
 #'   Positive estimates alone do not establish population regularity.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            delta_R = c(.2, .2), delta_A = c(.2, .2),
@@ -27,8 +31,8 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            model = c("net", "separated"),
                            folds = 5L,
                            nuisance_method = c("SuperLearner", "glm"),
-                           sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-                           sl_lib_outcome = "SL.glm", seed = 1L,
+                           sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+                           sl_lib_outcome = sl_libs, seed = 1L,
                            conf_level = .95,
                            nuisance_source = c("estimated", "oracle_error"),
                            nuisance_error_rate = .25,
@@ -36,7 +40,7 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            nuisance_error_sign = c(e = 1, rho = -1,
                                                    regression = 1),
                            delta_K = NULL, propensity_clip = 1e-4,
-                           moment_strategy = c("three_way", "shared_training")) {
+                           moment_strategy = c("three_way", "shared_training"), sl_libs = "SL.glm") {
   l2_validate_propensity_clip(propensity_clip)
   moment_strategy <- match.arg(moment_strategy)
   nuisance_method <- match.arg(nuisance_method)

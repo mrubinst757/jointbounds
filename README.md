@@ -438,3 +438,41 @@ the reduced analyses inherit its training folds and learner settings. Use
 `variance = TRUE` for calibration bands. Without a supplied fit, match data,
 seed, folds, libraries and propensity clipping to reproduce the default
 three-stage zero-radius analysis. Earlier saved surfaces need one refit.
+
+### Learner libraries, balance formulas, and frontier plots
+
+Use `sl_libs = c("SL.glm", "SL.mean")` for all SuperLearner regressions.
+Override individual models with `sl_lib_prop`, `sl_lib_miss`, or
+`sl_lib_outcome` (also used for pseudo-outcome regressions). These options pass
+through `l2_sensitivity_band()` to the endpoint estimators. The older
+`mar_bounds(sl_lib = ...)` interface remains supported.
+
+Sharp bounds default to `basis = NULL`: an intercept plus covariate means
+(indicators for factors). Supply a one-sided formula for richer balance:
+
+```r
+fit <- l2_sensitivity_band(dat, Y = y, A = a, C = ".missing", X = x,
+  grid = grid, bound_method = "sharp", keep_fits = TRUE,
+  sl_libs = c("SL.glm", "SL.mean"), sl_lib_outcome = "SL.glm",
+  basis = ~ splines::ns(age, df = 3) + income + age:income)
+# age and income must be among the covariate names in x.
+tip <- l2_tipping_band(fit)
+l2_plot_frontier(tip, uncertainty = "none")
+l2_plot_frontier(tip, uncertainty = "simultaneous")
+# For a previously constructed multi-benchmark calibration band cal:
+l2_plot_frontier(cal, uncertainty = "both", facet = TRUE)
+# Grid-only display:
+plot(tip, uncertainty = "simultaneous", interpolate = FALSE)
+```
+
+Formulas must include an intercept and only covariates in `X`; `~ .` means X.
+Cross-fitting learns spline knots, polynomial transformations, and scaling on
+the training fold. Richer bases may improve approximation but complicate fitting.
+
+Plot interpolation connects crossings and interval endpoints along the horizontal
+radius. To interpolate crossings along the vertical radius as well, use
+`l2_tipping_band(fit, interpolate = TRUE)` or the calibration-band equivalent.
+Neither interpolation establishes between-grid coverage. Missing crossings remain
+gaps, without extrapolation. Overlaying bands does not create simultaneous
+coverage across benchmarks: request `simultaneous_scope = "all_benchmarks"`
+when constructing the calibration band.

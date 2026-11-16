@@ -1,3 +1,9 @@
+# jointbounds 0.4.3
+
+- Added common `sl_libs` across learner interfaces, retaining individual model overrides.
+- Documented default mean-balance basis and richer formulas; spline and polynomial transformations now use training-fold parameters in cross-fitting.
+- Added `l2_plot_frontier()` with overlay/facet views, optional uncertainty ribbons, grid-only error bars, and an explicit warning about between-grid inference. Missing crossings remain gaps.
+
 # jointbounds 0.4.2
 
 - Full and reduced AIPW benchmarks now use the same rotating training folds

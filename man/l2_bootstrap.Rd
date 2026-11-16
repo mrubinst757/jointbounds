@@ -6,11 +6,12 @@ l2_bootstrap(data, Y, A, C, X, delta = c(1, 1),
   delta_R = c(0, 0), delta_A = c(0, 0), delta_M = delta_R,
   model = c("net", "separated"), method = c("cs", "sharp"),
   folds = 5L, nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm", basis = NULL, seed = 1L, control = list(),
-  B = 200L, conf_level = 0.95, delta_K = NULL)
+  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+  sl_lib_outcome = sl_libs, basis = NULL, seed = 1L, control = list(),
+  B = 200L, conf_level = 0.95, delta_K = NULL, sl_libs = "SL.glm")
 }
 \arguments{
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data, Y, A, C, X, delta, delta_R, delta_A, delta_K, delta_M, model,
   method, folds, nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome,
   basis, seed, control}{As in \code{l2_bounds()}.}

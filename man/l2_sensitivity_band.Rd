@@ -57,7 +57,7 @@ cross-fitted estimator.}
 
 \item{keep_fits}{Retain the potentially large list of pointwise fits.}
 
-\item{...}{Additional arguments passed to `l2_cs_crossfit()` or
+\item{...}{Use \code{sl_libs} for a shared learner library, model-specific library arguments for overrides, and \code{basis} for a sharp balance formula. Additional arguments passed to `l2_cs_crossfit()` or
 `l2_sharp_crossfit()`.}
 }
 \value{

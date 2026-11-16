@@ -6,17 +6,18 @@ l2_sharp_crossfit(
   data, Y, A, C, X, delta = c(1, 1), delta_R = c(0.2, 0.2),
   delta_A = c(0.2, 0.2), delta_M = delta_R,
   model = c("net", "separated"), folds = 5L, basis = NULL,
-  nuisance_method = c("SuperLearner", "glm"), sl_lib_prop = "SL.glm",
-  sl_lib_miss = "SL.glm", sl_lib_outcome = "SL.glm", seed = 1L,
+  nuisance_method = c("SuperLearner", "glm"), sl_lib_prop = sl_libs,
+  sl_lib_miss = sl_libs, sl_lib_outcome = sl_libs, seed = 1L,
   control = list(), diagnostic_control = list(), conf_level = 0.95,
   boundary_tol = 1e-7,
   nuisance_source = c("estimated", "oracle_error"),
   nuisance_error_rate = 0.25, nuisance_error_scale = 1,
   nuisance_error_sign = c(e = 1, rho = -1, regression = 1),
-  delta_K = NULL, propensity_clip = 1e-4
-)
+  delta_K = NULL, propensity_clip = 1e-4,
+  sl_libs = "SL.glm")
 }
 \arguments{
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{propensity_clip}{Estimated treatment probabilities are clipped to
   \code{[propensity_clip, 1 - propensity_clip]} before optimization and score
   evaluation. Must lie strictly between zero and one half. The default

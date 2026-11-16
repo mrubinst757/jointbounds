@@ -6,13 +6,14 @@ l2_linf_bounds(
   data, Y, A, C, X, delta = c(1, 1), delta_R_inf = c(0, 0),
   delta_A_inf = c(0, 0), method = c("both", "outer", "sharp"),
   folds = 5L, nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm", basis = NULL, max_n = 1000L, seed = 1L,
+  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+  sl_lib_outcome = sl_libs, basis = NULL, max_n = 1000L, seed = 1L,
   model = c("net", "separated"), delta_M_inf = delta_R_inf,
-  delta_K_inf = NULL
-)
+  delta_K_inf = NULL,
+  sl_libs = "SL.glm")
 }
 \arguments{
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{data, Y, A, C, X, delta, folds, nuisance_method, sl_lib_prop,
   sl_lib_miss, sl_lib_outcome, basis, seed}{As in \code{l2_bounds()}.
   \code{delta} is used only when \code{model = "separated"}.}

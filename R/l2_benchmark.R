@@ -31,6 +31,9 @@ utils::globalVariables(c(".radius_x", "estimate", "simultaneous_low",
 #'   metadata. The signed discrepancy is reduced-Z minus full-X. Frontier
 #'   functions use its magnitude to shift toward zero by default, retaining
 #'   the raw discrepancy and paired scores for inference.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
                                max_per_pz = 10L, subsets = NULL,
@@ -39,12 +42,12 @@ l2_aipw_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
                                variance = FALSE, conf_level = .95,
                                folds = 5L,
                                nuisance_method = c("SuperLearner", "glm"),
-                               sl_lib_prop = "SL.glm",
-                               sl_lib_miss = "SL.glm",
-                               sl_lib_outcome = "SL.glm", seed = 1L,
+                               sl_lib_prop = sl_libs,
+                               sl_lib_miss = sl_libs,
+                               sl_lib_outcome = sl_libs, seed = 1L,
                                reference_fit = NULL,
                                reference_strategy = c("three_way", "shared_training", "legacy"),
-                               propensity_clip = 1e-4) {
+                               propensity_clip = 1e-4, sl_libs = "SL.glm") {
   subset_selection <- match.arg(subset_selection)
   estimator <- match.arg(estimator); nuisance_method <- match.arg(nuisance_method)
   if (!all(c(Y, A, C, X) %in% names(data))) stop("Y, A, C, and X must exist")
@@ -471,36 +474,14 @@ l2_calibration_band <- function(surface, benchmarks,
 }
 
 #' Plot calibration-frontier confidence bands
-#' @param x Output from `l2_calibration_band()`.
+#' @inheritParams l2_plot_frontier
 #' @param ... Additional arguments currently ignored.
-#' @return A `ggplot2` object.
+#' @return A ggplot object.
 #' @export
-plot.jointbounds_l2_calibration_band <- function(x, ...) {
-  if (!requireNamespace("ggplot2", quietly = TRUE))
-    stop("Plotting calibration bands requires the suggested package ggplot2")
-  d <- x$frontier
-  if (!nrow(d) || !any(is.finite(d$estimate)))
-    stop("No finite calibration-frontier crossings are available to plot")
-  rx <- x$radius_x; ry <- x$radius_y
-  d$.radius_x <- d[[rx]]
-  ggplot2::ggplot(d, ggplot2::aes(x = .radius_x, y = estimate)) +
-    ggplot2::geom_ribbon(ggplot2::aes(
-      ymin = simultaneous_low, ymax = simultaneous_high),
-      fill = "#4C78A8", alpha = .16, na.rm = TRUE) +
-    ggplot2::geom_ribbon(ggplot2::aes(
-      ymin = pointwise_low, ymax = pointwise_high),
-      fill = "#4C78A8", alpha = .28, na.rm = TRUE) +
-    ggplot2::geom_line(linewidth = .9, colour = "#173F5F", na.rm = TRUE) +
-    ggplot2::facet_wrap(stats::as.formula("~ label")) +
-    ggplot2::labs(x = rx, y = paste0("Frontier value of ", ry),
-      title = "Estimated calibration frontiers",
-      subtitle = paste0(format(100 * x$conf_level, trim = TRUE),
-        "% pointwise and simultaneous influence-function bands")) +
-    ggplot2::theme_minimal(base_size = 12) +
-    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
-      plot.title = ggplot2::element_text(face = "bold"),
-      strip.text = ggplot2::element_text(face = "bold"),
-      axis.title = ggplot2::element_text(face = "bold"))
+plot.jointbounds_l2_calibration_band <- function(x, ...,
+    uncertainty = "both", interpolate = TRUE, facet = TRUE, points = TRUE) {
+  l2_plot_frontier(x, uncertainty = uncertainty, interpolate = interpolate,
+                  facet = facet, points = points)
 }
 
 #' Invert a sensitivity surface for many calibration benchmarks

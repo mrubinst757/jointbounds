@@ -7,16 +7,17 @@ l2_cs_crossfit(
   delta_A = c(0.2, 0.2), delta_M = delta_R,
   model = c("net", "separated"), folds = 5L,
   nuisance_method = c("SuperLearner", "glm"),
-  sl_lib_prop = "SL.glm", sl_lib_miss = "SL.glm",
-  sl_lib_outcome = "SL.glm", seed = 1L, conf_level = 0.95,
+  sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
+  sl_lib_outcome = sl_libs, seed = 1L, conf_level = 0.95,
   nuisance_source = c("estimated", "oracle_error"),
   nuisance_error_rate = 0.25, nuisance_error_scale = 1,
   nuisance_error_sign = c(e = 1, rho = -1, regression = 1),
   delta_K = NULL, propensity_clip = 1e-4,
-  moment_strategy = c("three_way", "shared_training")
-)
+  moment_strategy = c("three_way", "shared_training"),
+  sl_libs = "SL.glm")
 }
 \arguments{
+\item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
   \item{moment_strategy}{The default \code{"three_way"} fits structural nuisances,
   residual-moment regressions, and evaluation scores on disjoint folds (at least
   three). \code{"shared_training"} reproduces the earlier implementation,

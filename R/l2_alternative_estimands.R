@@ -15,15 +15,18 @@
 #'   optimizers.
 #' @return Bounds, standard errors, Wald intervals, influence scores, and
 #'   support-function diagnostics.
+#' @param sl_libs Common SuperLearner library for all nuisance regressions.
+#'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
+#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
 #' @export
 l2_prevalence_bounds <- function(data, Y, A, C, X,
                                  estimand = c("composite", "sde"),
                                  kappa = c(0, 0), folds = 5L,
                                  nuisance_method = c("SuperLearner", "glm"),
-                                 sl_lib_prop = "SL.glm",
-                                 sl_lib_miss = "SL.glm",
-                                 sl_lib_outcome = "SL.glm", seed = 1L,
-                                 conf_level = .95, keep_nuisance = FALSE) {
+                                 sl_lib_prop = sl_libs,
+                                 sl_lib_miss = sl_libs,
+                                 sl_lib_outcome = sl_libs, seed = 1L,
+                                 conf_level = .95, keep_nuisance = FALSE, sl_libs = "SL.glm") {
   estimand <- match.arg(estimand)
   nuisance_method <- match.arg(nuisance_method)
   kappa <- l2_as_pair(kappa, "kappa", 1)
