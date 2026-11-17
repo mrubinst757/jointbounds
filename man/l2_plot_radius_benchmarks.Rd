@@ -2,22 +2,44 @@
 % Please edit documentation in R/l2_radius_benchmark.R
 \name{l2_plot_radius_benchmarks}
 \alias{l2_plot_radius_benchmarks}
-\title{Plot radius benchmarks against a tipping frontier}
+\title{Plot radius benchmarks against tipping frontiers}
 \usage{
-l2_plot_radius_benchmarks(frontier, benchmarks, label_points = TRUE, ...)
+l2_plot_radius_benchmarks(
+  frontier,
+  benchmarks,
+  uncertainty = NULL,
+  interpolate = TRUE,
+  diagonal = TRUE,
+  label_points = FALSE,
+  point_size = 3,
+  ...
+)
 }
 \arguments{
-\item{frontier}{Output from `l2_tipping_frontier()`.}
+\item{frontier}{A tipping-frontier object, or a named list of objects. Each
+object may come from `l2_tipping_frontier()` or `l2_tipping_band()`.}
 
 \item{benchmarks}{Output from `l2_radius_benchmarks()`.}
 
+\item{uncertainty}{Show `"simultaneous"`, `"pointwise"`, `"both"`, or no
+frontier uncertainty. The default is simultaneous for band objects and
+none for point-estimate frontier objects.}
+
+\item{interpolate}{Connect finite frontier estimates and bands between
+evaluated horizontal grid values. Such connections are descriptive;
+finite-grid coverage does not imply coverage between grid points.}
+
+\item{diagonal}{Add the equal-radius reference line.}
+
 \item{label_points}{Label benchmark points.}
 
-\item{...}{Additional arguments passed to `l2_plot_frontier()`.}
+\item{point_size}{Size of omission-benchmark points.}
+
+\item{...}{Reserved for future plotting options.}
 }
 \value{
 A ggplot object.
 }
 \description{
-Plot radius benchmarks against a tipping frontier
+Plot radius benchmarks against tipping frontiers
 }

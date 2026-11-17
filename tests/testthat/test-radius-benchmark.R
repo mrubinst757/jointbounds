@@ -44,3 +44,30 @@ test_that("radius benchmark input validation is informative", {
   expect_error(l2_radius_benchmarks(dat, "Y", "A", "C", "X",
     probability_clip = .6), "strictly between")
 })
+
+test_that("radius benchmark plot combines sharp and CS frontier bands", {
+  skip_if_not_installed("ggplot2")
+  bench <- structure(list(results = data.frame(
+    label = c("Omit X1", "Omit X2"),
+    delta_M = c(.05, .12), delta_K = c(.18, .08))),
+    class = "jointbounds_l2_radius_benchmarks")
+  make_band <- function(shift, estimator) structure(list(
+    frontier = data.frame(delta_M = c(0, .1, .2),
+      estimate = c(.4, .3, .2) + shift,
+      pointwise_low = c(.35, .25, .15) + shift,
+      pointwise_high = c(.45, .35, .25) + shift,
+      simultaneous_low = c(.32, .22, .12) + shift,
+      simultaneous_high = c(.48, .38, .28) + shift),
+    radius_x = "delta_M", radius_y = "delta_K",
+    endpoint_estimator = estimator, conf_level = .95),
+    class = "jointbounds_l2_calibration_band")
+  sharp <- make_band(.05, "dr"); cs <- make_band(0, "eif")
+  p <- plot(bench, frontier = list(`Sharp sieve` = sharp, `CS outer` = cs),
+            uncertainty = "simultaneous")
+  expect_s3_class(p, "ggplot")
+  expect_gte(length(p$layers), 4L)
+  expect_error(l2_plot_radius_benchmarks(
+    structure(data.frame(delta_M = 0, delta_K = 0),
+      class = c("jointbounds_l2_frontier", "data.frame")),
+    bench, uncertainty = "simultaneous"), "requires every object")
+})

@@ -245,29 +245,130 @@ l2_rb_ratio_predict <- function(object, newdata, clip) {
   clip_probs(as.numeric(p), clip)
 }
 
-#' Plot radius benchmarks against a tipping frontier
+#' Plot radius benchmarks against tipping frontiers
 #'
-#' @param frontier Output from `l2_tipping_frontier()`.
+#' @param frontier A tipping-frontier object, or a named list of objects. Each
+#'   object may come from `l2_tipping_frontier()` or `l2_tipping_band()`.
 #' @param benchmarks Output from `l2_radius_benchmarks()`.
 #' @param label_points Label benchmark points.
-#' @param ... Additional arguments passed to `l2_plot_frontier()`.
+#' @param uncertainty Show `"simultaneous"`, `"pointwise"`, `"both"`, or no
+#'   frontier uncertainty. The default is simultaneous for band objects and
+#'   none for point-estimate frontier objects.
+#' @param interpolate Connect finite frontier estimates and bands between
+#'   evaluated horizontal grid values. Such connections are descriptive;
+#'   finite-grid coverage does not imply coverage between grid points.
+#' @param diagonal Add the equal-radius reference line.
+#' @param point_size Size of omission-benchmark points.
+#' @param ... Reserved for future plotting options.
 #' @return A ggplot object.
 #' @export
 l2_plot_radius_benchmarks <- function(frontier, benchmarks,
-                                      label_points = TRUE, ...) {
+                                      uncertainty = NULL,
+                                      interpolate = TRUE, diagonal = TRUE,
+                                      label_points = FALSE, point_size = 3,
+                                      ...) {
   if (!inherits(benchmarks, "jointbounds_l2_radius_benchmarks"))
     stop("benchmarks must be returned by l2_radius_benchmarks()")
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Plotting requires the suggested package ggplot2")
-  p <- l2_plot_frontier(frontier, ...)
-  d <- benchmarks$results
-  p <- p + ggplot2::geom_point(data = d,
-    ggplot2::aes(x = delta_M, y = delta_K), inherit.aes = FALSE,
-    shape = 21, size = 3, stroke = .8, fill = "white", colour = "black")
-  if (isTRUE(label_points)) p <- p + ggplot2::geom_text(data = d,
-    ggplot2::aes(x = delta_M, y = delta_K, label = label), inherit.aes = FALSE,
-    nudge_y = .02, check_overlap = TRUE, size = 3.5)
-  p + ggplot2::labs(caption = paste(
-    "Open points are covariate-omission radius benchmarks.",
-    "Benchmark uncertainty is not shown."))
+  recognized <- function(z) inherits(z, "jointbounds_l2_calibration_band") ||
+    inherits(z, "jointbounds_l2_frontier")
+  objects <- if (recognized(frontier)) list(frontier) else frontier
+  if (!is.list(objects) || !length(objects) ||
+      any(!vapply(objects, recognized, logical(1))))
+    stop("frontier must be a tipping-frontier object or a list of them")
+  object_names <- names(objects)
+  if (is.null(object_names)) object_names <- rep("", length(objects))
+  rows <- vector("list", length(objects)); has_band <- logical(length(objects))
+  for (j in seq_along(objects)) {
+    z <- objects[[j]]
+    if (inherits(z, "jointbounds_l2_calibration_band")) {
+      d <- z$frontier; rx <- z$radius_x; ry <- z$radius_y
+      has_band[j] <- TRUE
+    } else {
+      d <- as.data.frame(z); rx <- attr(z, "radius_x"); ry <- attr(z, "radius_y")
+      if (is.null(rx)) rx <- if ("delta_M" %in% names(d)) "delta_M" else "delta_R"
+      if (is.null(ry)) ry <- if ("delta_K" %in% names(d)) "delta_K" else "delta_A"
+      d$estimate <- d[[ry]]
+    }
+    if (!identical(rx, "delta_M") || !identical(ry, "delta_K"))
+      stop("Radius benchmarks require frontiers on delta_M and delta_K axes")
+    if (!nzchar(object_names[j])) object_names[j] <- if (length(objects) == 1L)
+      "Tipping frontier" else if (!is.null(z$endpoint_estimator) &&
+        identical(z$endpoint_estimator, "dr")) "Sharp sieve" else if
+        (!is.null(z$endpoint_estimator) && identical(z$endpoint_estimator, "eif"))
+          "CS outer" else paste("Frontier", j)
+    d$.bound <- object_names[j]
+    rows[[j]] <- d
+  }
+  if (is.null(uncertainty)) uncertainty <- if (all(has_band))
+    "simultaneous" else "none"
+  uncertainty <- match.arg(uncertainty,
+    c("simultaneous", "pointwise", "both", "none"))
+  if (uncertainty != "none" && any(!has_band))
+    stop("Requested uncertainty requires every object to come from l2_tipping_band()")
+  f <- do.call(rbind, rows)
+  f <- f[order(f$.bound, f$delta_M), , drop = FALSE]
+  f$.missing <- !is.finite(f$estimate)
+  f$.segment <- stats::ave(as.integer(f$.missing), f$.bound, FUN = cumsum)
+  f$.line_group <- interaction(f$.bound, f$.segment, drop = TRUE)
+  finite <- f[!f$.missing, , drop = FALSE]
+  p <- ggplot2::ggplot(f, ggplot2::aes(x = delta_M))
+  if (isTRUE(diagonal)) p <- p + ggplot2::geom_abline(slope = 1,
+    intercept = 0, colour = "grey70", linewidth = .55)
+  kinds <- if (uncertainty == "both") c("simultaneous", "pointwise") else
+    if (uncertainty == "none") character() else uncertainty
+  for (kind in kinds) {
+    low <- paste0(kind, "_low"); high <- paste0(kind, "_high")
+    z <- f
+    z$.low <- z[[low]]; z$.high <- z[[high]]
+    z$.band_missing <- !is.finite(z$.low) | !is.finite(z$.high)
+    z$.band_segment <- stats::ave(as.integer(z$.band_missing), z$.bound,
+      FUN = cumsum)
+    z$.band_group <- interaction(z$.bound, z$.band_segment, drop = TRUE)
+    z <- z[!z$.band_missing, , drop = FALSE]
+    if (isTRUE(interpolate)) p <- p + ggplot2::geom_ribbon(data = z,
+      ggplot2::aes(x = delta_M, ymin = .low, ymax = .high, fill = .bound,
+                   group = .band_group), inherit.aes = FALSE,
+      alpha = if (kind == "simultaneous") .14 else .26, colour = NA)
+    else p <- p + ggplot2::geom_errorbar(data = z,
+      ggplot2::aes(x = delta_M, ymin = .low, ymax = .high,
+                   group = .bound), inherit.aes = FALSE, colour = "black",
+      width = 0, alpha = if (kind == "simultaneous") .65 else 1)
+  }
+  if (isTRUE(interpolate)) p <- p + ggplot2::geom_line(data = finite,
+    ggplot2::aes(x = delta_M, y = estimate, linetype = .bound,
+                 group = .line_group),
+    colour = "black", linewidth = .9, inherit.aes = FALSE)
+  else p <- p + ggplot2::geom_point(data = finite,
+    ggplot2::aes(x = delta_M, y = estimate, shape = .bound),
+    colour = "black", inherit.aes = FALSE)
+  b <- benchmarks$results
+  p <- p + ggplot2::geom_point(data = b,
+    ggplot2::aes(x = delta_M, y = delta_K, colour = label),
+    inherit.aes = FALSE, size = point_size)
+  if (isTRUE(label_points)) p <- p + ggplot2::geom_text(data = b,
+    ggplot2::aes(x = delta_M, y = delta_K, label = label, colour = label),
+    inherit.aes = FALSE, nudge_y = .02, check_overlap = TRUE,
+    show.legend = FALSE, size = 3.5)
+  caption <- paste0("Omission-radius points are descriptive estimates; their ",
+    "uncertainty is not shown.", if (isTRUE(interpolate))
+      " Lines and ribbons between evaluated grid values are descriptive." else "")
+  p + ggplot2::labs(x = expression(delta[M]), y = expression(delta[K]),
+    fill = "Tipping frontier", linetype = "Tipping frontier",
+    shape = "Tipping frontier", colour = "Omitted covariates",
+    caption = caption) + ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "bottom", legend.box = "vertical")
+}
+
+#' Plot omission-radius benchmarks
+#'
+#' @param x Output from `l2_radius_benchmarks()`.
+#' @param frontier A tipping-frontier object or named list of objects.
+#' @param ... Additional arguments passed to `l2_plot_radius_benchmarks()`.
+#' @return A ggplot object.
+#' @export
+plot.jointbounds_l2_radius_benchmarks <- function(x, frontier, ...) {
+  l2_plot_radius_benchmarks(frontier = frontier, benchmarks = x, ...)
 }
