@@ -9,9 +9,16 @@
 #' @param data A data frame.
 #' @param Y,A,C Column names. `C = 1` denotes a missing outcome.
 #' @param X Character vector containing the full covariate set.
+#' @param p_z Optional integer vector of retained-set sizes. When supplied and
+#'   `subsets` is `NULL`, candidate retained sets `Z` are constructed at each
+#'   requested size and the omitted benchmark set is `W = setdiff(X, Z)`.
+#' @param max_per_pz Maximum number of retained sets selected at each requested
+#'   value of `p_z`.
 #' @param subsets Optional list of retained covariate sets `Z`. The omitted set
 #'   is `setdiff(X, Z)`. By default, each covariate is omitted one at a time and
 #'   all covariates are omitted together.
+#' @param subset_selection Reproducible random sampling or the lexicographic
+#'   first sets when the number of combinations exceeds `max_per_pz`.
 #' @param folds Number of cross-fitting folds.
 #' @param seed Random seed used to construct folds.
 #' @param probability_clip Clipping threshold for treatment, response, and
@@ -31,13 +38,16 @@
 #'   estimate `M = dP_F/dP_O` and `K = dP_C/dP_F` through class odds. All
 #'   predictions used in the empirical L2 norms are out of fold.
 #' @export
-l2_radius_benchmarks <- function(data, Y, A, C, X, subsets = NULL,
+l2_radius_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
+                                 max_per_pz = 10L, subsets = NULL,
+                                 subset_selection = c("random", "first"),
                                  folds = 5L, seed = 1L,
                                  probability_clip = 1e-3,
                                  ratio_clip = 1e-3,
                                  combine_arms = c("max", "mean"),
                                  return_predictions = FALSE) {
   combine_arms <- match.arg(combine_arms)
+  subset_selection <- match.arg(subset_selection)
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!all(c(Y, A, C, X) %in% names(data)))
     stop("Y, A, C, and every X variable must exist in data")
@@ -55,10 +65,31 @@ l2_radius_benchmarks <- function(data, Y, A, C, X, subsets = NULL,
   n <- nrow(data); folds <- as.integer(folds)
   if (!is.finite(folds) || folds < 2L || folds > n)
     stop("folds must be between 2 and n")
+  max_per_pz <- as.integer(max_per_pz)
+  if (!is.finite(max_per_pz) || length(max_per_pz) != 1L || max_per_pz < 1L)
+    stop("max_per_pz must be positive")
   if (is.null(subsets)) {
-    subsets <- lapply(X, function(w) setdiff(X, w))
-    names(subsets) <- paste0("omit ", X)
-    if (length(X) > 1L) subsets[["omit all"]] <- character()
+    if (is.null(p_z)) {
+      subsets <- lapply(X, function(w) setdiff(X, w))
+      names(subsets) <- paste0("omit ", X)
+      if (length(X) > 1L) subsets[["omit all"]] <- character()
+    } else {
+      if (!is.numeric(p_z) || any(!is.finite(p_z)) ||
+          any(p_z != as.integer(p_z)) || any(p_z < 0 | p_z >= length(X)))
+        stop("p_z must contain integers between 0 and length(X)-1")
+      set.seed(seed)
+      subsets <- list()
+      for (k in unique(as.integer(p_z))) {
+        cmb <- if (k == 0L) matrix(character(), nrow = 0L, ncol = 1L) else
+          utils::combn(X, k)
+        nc <- ncol(cmb)
+        take <- seq_len(nc)
+        if (nc > max_per_pz) take <- if (subset_selection == "random")
+          sort(sample.int(nc, max_per_pz)) else seq_len(max_per_pz)
+        for (jj in take) subsets[[length(subsets) + 1L]] <- if (k == 0L)
+          character() else cmb[, jj]
+      }
+    }
   }
   if (!is.list(subsets) || !length(subsets) ||
       any(!vapply(subsets, function(z) all(z %in% X), logical(1))))
@@ -129,7 +160,7 @@ l2_radius_benchmarks <- function(data, Y, A, C, X, subsets = NULL,
       z <- accum[[a + 1L]]; h <- h + 1L
       arm_rows[[h]] <- data.frame(benchmark_id = j, label = labels[j],
         retained = paste(Z, collapse = ","), omitted = paste(W, collapse = ","),
-        n_omitted = length(W), arm = a,
+        p_z = length(Z), n_omitted = length(W), arm = a,
         delta_M = sqrt(z$num_M / z$den_M),
         delta_K = sqrt(z$num_K / z$den_K),
         ess_O = z$sw_O^2 / z$sw_O2, ess_F = z$sw_F^2 / z$sw_F2,
@@ -143,7 +174,8 @@ l2_radius_benchmarks <- function(data, Y, A, C, X, subsets = NULL,
     fun <- if (combine_arms == "max") max else mean
     data.frame(benchmark_id = d$benchmark_id[1], label = d$label[1],
       retained = d$retained[1], omitted = d$omitted[1],
-      n_omitted = d$n_omitted[1], delta_M = fun(d$delta_M),
+      p_z = d$p_z[1], n_omitted = d$n_omitted[1],
+      delta_M = fun(d$delta_M),
       delta_K = fun(d$delta_K), min_ess_O = min(d$ess_O),
       min_ess_F = min(d$ess_F), max_ratio_clip_fraction =
         max(d$ratio_clip_fraction_M, d$ratio_clip_fraction_K),
@@ -160,7 +192,9 @@ l2_radius_benchmarks <- function(data, Y, A, C, X, subsets = NULL,
     subsets = subsets, fold_id = fold_id,
     metadata = list(X = X, folds = folds, seed = seed,
       probability_clip = probability_clip, ratio_clip = ratio_clip,
-      combine_arms = combine_arms, uncertainty = "not estimated"),
+      combine_arms = combine_arms, p_z = p_z,
+      max_per_pz = max_per_pz, subset_selection = subset_selection,
+      uncertainty = "not estimated"),
     call = match.call())
   class(out) <- "jointbounds_l2_radius_benchmarks"
   out

@@ -1,3 +1,8 @@
+# jointbounds 0.4.8
+
+- Added radius-scale covariate-omission benchmarks and a plotting method that overlays benchmark radii on sharp and CS tipping frontiers.
+- Restored `p_z`, `max_per_pz`, and reproducible random or lexicographic retained-set selection in `l2_radius_benchmarks()`; explicit `subsets` remain supported.
+
 # jointbounds 0.4.7
 
 - Added fold/model-specific predictor checks for constants, duplicate columns, and numerical linear dependence, including SL.glm's internal SuperLearner training subsets.

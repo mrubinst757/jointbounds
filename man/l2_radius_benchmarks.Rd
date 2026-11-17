@@ -10,7 +10,10 @@ l2_radius_benchmarks(
   A,
   C,
   X,
+  p_z = NULL,
+  max_per_pz = 10L,
   subsets = NULL,
+  subset_selection = c("random", "first"),
   folds = 5L,
   seed = 1L,
   probability_clip = 0.001,
@@ -26,9 +29,19 @@ l2_radius_benchmarks(
 
 \item{X}{Character vector containing the full covariate set.}
 
+\item{p_z}{Optional integer vector of retained-set sizes. When supplied and
+`subsets` is `NULL`, candidate retained sets `Z` are constructed at each
+requested size and the omitted benchmark set is `W = setdiff(X, Z)`.}
+
+\item{max_per_pz}{Maximum number of retained sets selected at each requested
+value of `p_z`.}
+
 \item{subsets}{Optional list of retained covariate sets `Z`. The omitted set
 is `setdiff(X, Z)`. By default, each covariate is omitted one at a time and
 all covariates are omitted together.}
+
+\item{subset_selection}{Reproducible random sampling or the lexicographic
+first sets when the number of combinations exceeds `max_per_pz`.}
 
 \item{folds}{Number of cross-fitting folds.}
 

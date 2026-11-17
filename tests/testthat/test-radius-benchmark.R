@@ -37,12 +37,35 @@ test_that("default radius benchmarks omit each covariate and all covariates", {
   expect_setequal(ans$results$label, c("omit X1", "omit X2", "omit all"))
 })
 
+test_that("radius benchmarks sample retained sets within p_z", {
+  set.seed(18)
+  n <- 600
+  dat <- as.data.frame(matrix(rnorm(n * 4), ncol = 4))
+  names(dat) <- paste0("X", 1:4)
+  dat$A <- rbinom(n, 1, plogis(.2 * dat$X1 - .1 * dat$X2))
+  R <- rbinom(n, 1, plogis(1 + .1 * dat$X3))
+  dat$C <- 1 - R
+  yf <- dat$A + dat$X1 + dat$X2 + rnorm(n)
+  dat$Y <- ifelse(R == 1, yf, NA_real_)
+  args <- list(data = dat, Y = "Y", A = "A", C = "C",
+    X = paste0("X", 1:4), p_z = c(1, 2), max_per_pz = 2,
+    subset_selection = "random", folds = 2, seed = 27)
+  a <- do.call(l2_radius_benchmarks, args)
+  b <- do.call(l2_radius_benchmarks, args)
+  expect_equal(nrow(a$results), 4L)
+  expect_equal(as.integer(table(a$results$p_z)), c(2L, 2L))
+  expect_equal(a$subsets, b$subsets)
+  expect_true(all(a$results$n_omitted == 4L - a$results$p_z))
+})
+
 test_that("radius benchmark input validation is informative", {
   dat <- data.frame(Y = 1:8, A = rep(0:1, 4), C = 0, X = rnorm(8))
   expect_error(l2_radius_benchmarks(dat, "Y", "A", "C", "X",
     subsets = list("X")), "must omit at least one")
   expect_error(l2_radius_benchmarks(dat, "Y", "A", "C", "X",
     probability_clip = .6), "strictly between")
+  expect_error(l2_radius_benchmarks(dat, "Y", "A", "C", "X",
+    p_z = 1), "between 0")
 })
 
 test_that("radius benchmark plot combines sharp and CS frontier bands", {
