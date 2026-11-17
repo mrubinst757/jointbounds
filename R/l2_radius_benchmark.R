@@ -172,8 +172,16 @@ l2_rb_formula <- function(response, predictors) {
 }
 
 l2_rb_safe_glm <- function(formula, data, weights = NULL) {
-  fit <- suppressWarnings(try(stats::glm(formula, data = data, weights = weights,
-    family = stats::binomial()), silent = TRUE))
+  # Omitting the weights argument when it is NULL matters: model.frame()
+  # otherwise looks for a column named `weights` in some R versions and the
+  # helper silently falls back to a marginal fit.
+  fit <- suppressWarnings(try(if (is.null(weights)) {
+    stats::glm(formula, data = data, family = stats::binomial())
+  } else {
+    data$.rb_glm_weight <- weights
+    stats::glm(formula, data = data, weights = .rb_glm_weight,
+      family = stats::binomial())
+  }, silent = TRUE))
   if (inherits(fit, "try-error") || any(!is.finite(stats::coef(fit)))) NULL else fit
 }
 

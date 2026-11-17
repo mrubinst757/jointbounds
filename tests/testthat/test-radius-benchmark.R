@@ -16,6 +16,7 @@ test_that("radius-scale benchmarks return finite arm and combined radii", {
   expect_true(all(is.finite(ans$arm_results$delta_K)))
   expect_true(all(ans$arm_results$delta_M >= 0))
   expect_true(all(ans$arm_results$delta_K >= 0))
+  expect_gt(max(ans$arm_results$delta_M, ans$arm_results$delta_K), 0)
   expect_equal(ans$results$delta_M, max(ans$arm_results$delta_M))
   expect_equal(ans$results$delta_K, max(ans$arm_results$delta_K))
   expect_identical(ans$metadata$uncertainty, "not estimated")
