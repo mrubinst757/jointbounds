@@ -8,15 +8,20 @@ l2_sharp_crossfit (data, Y, A, C, X, delta = c(1, 1), delta_R = c(0.2, 0.2), del
     control = list(), diagnostic_control = list(), conf_level = 0.95, boundary_tol = 1e-07,
     nuisance_source = c("estimated", "oracle_error"), nuisance_error_rate = 0.25, nuisance_error_scale = 1,
     nuisance_error_sign = c(e = 1, rho = -1, regression = 1), delta_K = NULL, propensity_clip = clip,
-    sl_libs = "SL.glm", response_clip = clip, clip = 1e-04, nuisance_fit = NULL, learner_fallback = c("error", "glm"))
+    sl_libs = "SL.glm", response_clip = clip, clip = 1e-04, nuisance_fit = NULL, learner_fallback = c("error", "glm"),
+    sl_lib_second_stage = NULL, second_stage_method = NULL)
 }
 \arguments{
 \item{learner_fallback}{On SuperLearner failure, stop with the original error by default (\code{"error"}). The explicit \code{"glm"} option permits a substitute GLM with a warning. Initial-fit reuse inherits its saved policy. Older caches default to error for new regressions; cached predictions are not recomputed. The legacy benchmark strategy supports error only.}
-\item{nuisance_fit}{Reusable output from \code{l2_initial_fit()}. Supplies cached structural predictions, folds, seed, learners, and clipping, overriding downstream settings for these. Requires the same ordered data. Sharp estimation requires the three-way strategy. Dual fitting and pseudo-outcome regressions still run separately.}
+\item{nuisance_fit}{Reusable output from \code{l2_initial_fit()}. Supplies cached structural predictions, folds, seed, structural learners, and clipping. Requires the same ordered data. Sharp estimation requires the three-way strategy. Dual fitting and second-stage regressions still run separately.}
 \item{clip}{Common two-sided clipping threshold, default 1e-4. Probabilities are restricted to [clip, 1-clip]; no observations are removed.}
 \item{propensity_clip, response_clip}{Overrides for treatment and response probabilities. Both must be finite scalars strictly between zero and 0.5. Reused reference fits supply both settings; older fits use response clipping at 1e-4.}
 
 \item{sl_libs}{Common SuperLearner library for all nuisance regressions. Model-specific \code{sl_lib_prop}, \code{sl_lib_miss}, and \code{sl_lib_outcome} override it.}
+
+\item{sl_lib_second_stage}{Optional SuperLearner library for the conditional dual-loss and derivative regressions. With a cached \code{nuisance_fit}, an explicitly supplied \code{sl_lib_second_stage}, \code{sl_lib_outcome}, or \code{sl_libs} controls these newly fitted regressions; otherwise the cached outcome library is used.}
+
+\item{second_stage_method}{Optional \code{"SuperLearner"} or \code{"glm"} method for the newly fitted conditional dual-loss and derivative regressions. It defaults to the structural nuisance method, including the cached method.}
 
   \item{data, Y, A, C, X, delta, delta_R, delta_A, delta_K, delta_M, model, basis,
   nuisance_method, sl_lib_prop, sl_lib_miss, sl_lib_outcome, seed, control,

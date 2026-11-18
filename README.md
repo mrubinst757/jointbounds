@@ -443,8 +443,14 @@ three-stage zero-radius analysis. Earlier saved surfaces need one refit.
 
 Use `sl_libs = c("SL.glm", "SL.mean")` for all SuperLearner regressions.
 Override individual models with `sl_lib_prop`, `sl_lib_miss`, or
-`sl_lib_outcome` (also used for pseudo-outcome regressions). These options pass
-through `l2_sensitivity_band()` to the endpoint estimators. The older
+`sl_lib_outcome`. Use `sl_lib_second_stage` to separately control the sharp
+dual-loss/derivative regressions or the CS residual-moment regressions, and
+`second_stage_method` to select `"SuperLearner"` or `"glm"` for that stage.
+When `nuisance_fit` is supplied, its structural predictions and structural
+learner settings are reused, but explicit downstream `sl_lib_second_stage`,
+`sl_lib_outcome`, or `sl_libs` settings still control the newly fitted
+second-stage regressions. These options pass through `l2_sensitivity_band()`
+to the endpoint estimators. The older
 `mar_bounds(sl_lib = ...)` interface remains supported.
 
 Sharp bounds default to `basis = NULL`: an intercept plus covariate means

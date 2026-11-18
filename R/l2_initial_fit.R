@@ -13,9 +13,10 @@
 #' @details Pass this object as `nuisance_fit` to `l2_sharp_crossfit()`,
 #'   `l2_cs_crossfit()`, or `l2_sensitivity_band()`, and as `reference_fit` to
 #'   `l2_aipw_benchmarks()`. The same ordered data and covariates are required.
-#'   The cache supplies folds, seed, learner settings and clipping; downstream
-#'   settings for these are superseded. Radius-specific dual fitting and
-#'   pseudo-outcome regressions still run. Reduced-covariate benchmarks fit
+#'   The cache supplies folds, seed, structural learner settings and clipping.
+#'   Radius-specific dual fitting and second-stage regressions still run, and
+#'   their learner library can be set downstream with `sl_lib_second_stage`
+#'   (or an explicitly supplied `sl_libs` or `sl_lib_outcome`). Reduced-covariate benchmarks fit
 #'   their own structural models using the cached fold scheme and settings.
 #'   Ordinary `generate_ate()` objects cannot be substituted for this cache.
 #' @param learner_fallback On a SuperLearner fitting or prediction failure,

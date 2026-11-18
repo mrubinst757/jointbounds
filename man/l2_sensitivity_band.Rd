@@ -24,7 +24,7 @@ l2_sensitivity_band(
 )
 }
 \arguments{
-\item{nuisance_fit}{Reusable output from \code{l2_initial_fit()}. Supplies cached structural predictions, folds, seed, learners, and clipping, overriding downstream settings for these. Requires the same ordered data. Sharp estimation requires the three-way strategy. Dual fitting and pseudo-outcome regressions still run separately.}
+\item{nuisance_fit}{Reusable output from \code{l2_initial_fit()}. Supplies cached structural predictions, folds, seed, structural learners, and clipping. Requires the same ordered data. Sharp estimation requires the three-way strategy. Newly fitted derivative and moment regressions may use downstream \code{sl_lib_second_stage}, \code{sl_libs}, or \code{sl_lib_outcome} settings.}
 \item{data}{A data frame.}
 
 \item{Y, A, C}{Column names. `A` and `C` are binary; `C = 1` means missing.}
@@ -58,7 +58,7 @@ cross-fitted estimator.}
 
 \item{keep_fits}{Retain the potentially large list of pointwise fits.}
 
-\item{...}{The default learner failure policy is to stop; \code{learner_fallback = "glm"} explicitly permits a warned GLM substitute. Use \code{clip} for both probability thresholds, with optional \code{propensity_clip} and \code{response_clip} overrides. Use \code{sl_libs} for a shared learner library, model-specific library arguments for overrides, and \code{basis} for a sharp balance formula. Additional arguments passed to `l2_cs_crossfit()` or
+\item{...}{The default learner failure policy is to stop; \code{learner_fallback = "glm"} explicitly permits a warned GLM substitute. Use \code{clip} for both probability thresholds, with optional \code{propensity_clip} and \code{response_clip} overrides. Use \code{sl_lib_second_stage} for derivative or moment regressions, \code{sl_libs} for a shared learner library, model-specific library arguments for overrides, and \code{basis} for a sharp balance formula. Additional arguments passed to `l2_cs_crossfit()` or
 `l2_sharp_crossfit()`.}
 }
 \value{

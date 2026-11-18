@@ -1,3 +1,8 @@
+# jointbounds 0.4.9
+
+- Separated cached structural-nuisance learners from newly fitted sharp derivative and CS residual-moment regressions. Explicit downstream `sl_lib_second_stage`, `sl_lib_outcome`, or `sl_libs` settings are now honored with `nuisance_fit`; `second_stage_method` can independently select SuperLearner or GLM.
+- Added direct diagnostics for nonfinite second-stage pseudo-outcomes instead of exposing opaque downstream GLM failures.
+
 # jointbounds 0.4.8
 
 - Added radius-scale covariate-omission benchmarks and a plotting method that overlays benchmark radii on sharp and CS tipping frontiers.

@@ -57,3 +57,43 @@ test_that("cache validation protects data order and cross-fitting roles", {
     nuisance_source="oracle_error"),"oracle_error")
   expect_error(l2_cs_crossfit(d,"Y","A","C",c("X1","X2"),nuisance_fit=list()),"l2_initial_fit")
 })
+
+test_that("cached structural fits do not override second-stage learners", {
+  d <- simulate_l2_data(120, seed = 221)[, c("Y", "A", "C", "X1", "X2")]
+  x <- c("X1", "X2")
+  init <- suppressWarnings(l2_initial_fit(d, "Y", "A", "C", x,
+    nuisance_method = "glm", folds = 3, seed = 17))
+  seen_method <- character()
+  seen_library <- list()
+  local_mocked_bindings(l2_pseudo_regression = function(train, X, pseudo,
+      use, test, method, library, ...) {
+    seen_method <<- c(seen_method, method)
+    seen_library[[length(seen_library) + 1L]] <<- library
+    rep(mean(pseudo), nrow(test))
+  }, .package = "jointbounds")
+  lib <- c("SL.mean", "SL.ranger")
+  sharp <- suppressWarnings(l2_sharp_crossfit(d, "Y", "A", "C", x,
+    delta_M = .04, delta_K = .03, nuisance_fit = init,
+    second_stage_method = "SuperLearner", sl_libs = lib))
+  expect_true(length(seen_method) > 0L)
+  expect_true(all(seen_method == "SuperLearner"))
+  expect_true(all(vapply(seen_library, identical, logical(1), lib)))
+  expect_identical(sharp$parameters$second_stage_method, "SuperLearner")
+  expect_identical(sharp$parameters$sl_lib_second_stage, lib)
+
+  seen_method <- character(); seen_library <- list()
+  cs <- suppressWarnings(l2_cs_crossfit(d, "Y", "A", "C", x,
+    delta_M = .04, delta_K = .03, nuisance_fit = init,
+    second_stage_method = "SuperLearner", sl_libs = lib))
+  expect_true(length(seen_method) > 0L)
+  expect_true(all(seen_method == "SuperLearner"))
+  expect_true(all(vapply(seen_library, identical, logical(1), lib)))
+  expect_identical(cs$parameters$second_stage_method, "SuperLearner")
+  expect_identical(cs$parameters$sl_lib_second_stage, lib)
+})
+
+test_that("pseudo regressions diagnose nonfinite responses", {
+  d <- data.frame(X = 1:2)
+  expect_error(jointbounds:::l2_pseudo_regression(d, "X", c(1, Inf),
+    c(TRUE, TRUE), d, "glm", "SL.glm"), "pseudo-outcomes are nonfinite")
+})

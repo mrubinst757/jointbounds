@@ -36,7 +36,15 @@
 #'   lower/upper covariance matrices by estimator, before and after division by n.
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
-#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#'   it for treatment, missingness, and outcome models.
+#' @param sl_lib_second_stage Optional SuperLearner library for the conditional
+#'   dual-loss and derivative regressions. With a cached `nuisance_fit`, an
+#'   explicitly supplied `sl_lib_second_stage`, `sl_lib_outcome`, or `sl_libs`
+#'   controls these newly fitted regressions; otherwise the cached outcome
+#'   library is used for backward compatibility.
+#' @param second_stage_method Optional `"SuperLearner"` or `"glm"` method for
+#'   the newly fitted conditional dual-loss and derivative regressions. It
+#'   defaults to the structural nuisance method, including the cached method.
 #' @param clip Common two-sided probability clipping threshold. Each probability
 #'   is restricted to `[clip, 1-clip]`. No observations are removed.
 #' @param propensity_clip,response_clip Override `clip` for treatment and
@@ -72,11 +80,27 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
                               nuisance_error_scale = 1,
                               nuisance_error_sign = c(e = 1, rho = -1,
                                                       regression = 1),
-                              delta_K = NULL, propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL, learner_fallback = c("error", "glm")) {
+                              delta_K = NULL, propensity_clip = clip, sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL, learner_fallback = c("error", "glm"),
+                              sl_lib_second_stage = NULL,
+                              second_stage_method = NULL) {
+  common_library_supplied <- !missing(sl_libs)
+  outcome_library_supplied <- !missing(sl_lib_outcome)
+  nuisance_method_supplied <- !missing(nuisance_method)
+  fallback_supplied <- !missing(learner_fallback)
   learner_fallback <- match.arg(learner_fallback)
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
   nuisance_method <- match.arg(nuisance_method)
+  requested_second_stage_method <- second_stage_method
+  if (is.null(requested_second_stage_method) && nuisance_method_supplied)
+    requested_second_stage_method <- nuisance_method
+  if (!is.null(requested_second_stage_method))
+    requested_second_stage_method <- match.arg(requested_second_stage_method,
+      c("SuperLearner", "glm"))
+  second_stage_library <- sl_lib_second_stage
+  if (is.null(second_stage_library) &&
+      (outcome_library_supplied || common_library_supplied))
+    second_stage_library <- sl_lib_outcome
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
   predictor_checks <- l2_predictor_sink()
@@ -88,9 +112,13 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
     nuisance_method <- cache$method
     sl_lib_prop <- cache$lib_e; sl_lib_miss <- cache$lib_r; sl_lib_outcome <- cache$lib_y
     propensity_clip <- cache$clip; response_clip <- cache$response_clip
-    learner_fallback <- if (is.null(cache$learner_fallback)) "error" else cache$learner_fallback
+    if (!fallback_supplied) learner_fallback <-
+      if (is.null(cache$learner_fallback)) "error" else cache$learner_fallback
     if (cache$strategy != "three_way") stop("Sharp bounds require a three_way initial fit")
   }
+  if (is.null(requested_second_stage_method))
+    requested_second_stage_method <- nuisance_method
+  if (is.null(second_stage_library)) second_stage_library <- sl_lib_outcome
 
   diagnostic_control <- l2_diagnostic_control(diagnostic_control,
                                                compute_hessian = FALSE)
@@ -223,15 +251,15 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
       } else {
         mH <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$H[obs_reg], obs_reg, data[te, , drop = FALSE],
-          nuisance_method, sl_lib_outcome, learner_fallback,
+          requested_second_stage_method, second_stage_library, learner_fallback,
           paste("sharp dual mean, arm",a,"fold",v,"endpoint",endpoint), predictor_checks)
         de <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$d_e[obs_reg], obs_reg, data[te, , drop = FALSE],
-          nuisance_method, sl_lib_outcome, learner_fallback,
+          requested_second_stage_method, second_stage_library, learner_fallback,
           paste("sharp propensity derivative, arm",a,"fold",v,"endpoint",endpoint), predictor_checks)
         drho <- l2_pseudo_regression(data[reg, , drop = FALSE], X,
           regression_eval$d_rho[obs_reg], obs_reg, data[te, , drop = FALSE],
-          nuisance_method, sl_lib_outcome, learner_fallback,
+          requested_second_stage_method, second_stage_library, learner_fallback,
           paste("sharp response derivative, arm",a,"fold",v,"endpoint",endpoint), predictor_checks)
       }
       e <- ns$test[[paste0("e", a)]]
@@ -382,6 +410,8 @@ l2_sharp_crossfit <- function(data, Y, A, C, X,
               call = match.call())
   out$predictor_diagnostics <- l2_predictor_table(predictor_checks)
   out$parameters$learner_fallback <- learner_fallback
+  out$parameters$second_stage_method <- requested_second_stage_method
+  out$parameters$sl_lib_second_stage <- second_stage_library
   out$reused_nuisance_fit <- !is.null(cache)
   joint <- l2_joint_covariance(out$scores)
   out$influence_covariance <- joint$influence
@@ -646,6 +676,17 @@ l2_oracle_dual_regressions <- function(data, a, B, delta, par, sigma,
 
 l2_pseudo_regression <- function(train, X, pseudo, use, test, method, library, learner_fallback = "error", context = "pseudo-outcome regression", diagnostic_sink = NULL) {
   ## pseudo is already restricted to use rows.
+  if (length(pseudo) != sum(use))
+    stop(context, ": pseudo-outcome length does not match the regression sample",
+      call. = FALSE)
+  if (!length(pseudo))
+    stop(context, ": no observations are available for this regression",
+      call. = FALSE)
+  bad <- !is.finite(pseudo)
+  if (any(bad))
+    stop(context, ": ", sum(bad), " of ", length(pseudo),
+      " pseudo-outcomes are nonfinite; inspect the corresponding dual fit, ",
+      "overlap, and sensitivity radius", call. = FALSE)
   xtr <- train[use, X, drop = FALSE]
   l2_learner_predict(pseudo, xtr, test[, X, drop = FALSE], "gaussian", method, library, learner_fallback, context, diagnostic_sink)
 }

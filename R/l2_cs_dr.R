@@ -23,7 +23,15 @@
 #'   Positive estimates alone do not establish population regularity.
 #' @param sl_libs Common SuperLearner library for all nuisance regressions.
 #'   Model-specific `sl_lib_prop`, `sl_lib_miss`, and `sl_lib_outcome` override
-#'   it for treatment, missingness, and outcome (including pseudo-outcome) models.
+#'   it for treatment, missingness, and outcome models.
+#' @param sl_lib_second_stage Optional SuperLearner library for the residual-
+#'   moment regressions. With a cached `nuisance_fit`, an explicitly supplied
+#'   `sl_lib_second_stage`, `sl_lib_outcome`, or `sl_libs` controls these newly
+#'   fitted regressions; otherwise the cached outcome library is used for
+#'   backward compatibility.
+#' @param second_stage_method Optional `"SuperLearner"` or `"glm"` method for
+#'   the newly fitted residual-moment regressions. It defaults to the structural
+#'   nuisance method, including the cached method.
 #' @param clip Common two-sided probability clipping threshold. Each probability
 #'   is restricted to `[clip, 1-clip]`. No observations are removed.
 #' @param propensity_clip,response_clip Override `clip` for treatment and
@@ -49,7 +57,8 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            folds = 5L,
                            nuisance_method = c("SuperLearner", "glm"),
                            sl_lib_prop = sl_libs, sl_lib_miss = sl_libs,
-                           sl_lib_outcome = sl_libs, seed = 1L,
+                           sl_lib_outcome = sl_libs,
+                           seed = 1L,
                            conf_level = .95,
                            nuisance_source = c("estimated", "oracle_error"),
                            nuisance_error_rate = .25,
@@ -57,13 +66,29 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
                            nuisance_error_sign = c(e = 1, rho = -1,
                                                    regression = 1),
                            delta_K = NULL, propensity_clip = clip,
-                           moment_strategy = c("three_way", "shared_training"), sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL, learner_fallback = c("error", "glm")) {
+                           moment_strategy = c("three_way", "shared_training"), sl_libs = "SL.glm", response_clip = clip, clip = 1e-4, nuisance_fit = NULL, learner_fallback = c("error", "glm"),
+                           sl_lib_second_stage = NULL,
+                           second_stage_method = NULL) {
+  common_library_supplied <- !missing(sl_libs)
+  outcome_library_supplied <- !missing(sl_lib_outcome)
+  nuisance_method_supplied <- !missing(nuisance_method)
+  fallback_supplied <- !missing(learner_fallback)
   learner_fallback <- match.arg(learner_fallback)
   l2_validate_propensity_clip(propensity_clip)
   l2_validate_propensity_clip(response_clip, "response_clip")
   strategy_supplied <- !missing(moment_strategy)
   moment_strategy <- match.arg(moment_strategy)
   nuisance_method <- match.arg(nuisance_method)
+  requested_second_stage_method <- second_stage_method
+  if (is.null(requested_second_stage_method) && nuisance_method_supplied)
+    requested_second_stage_method <- nuisance_method
+  if (!is.null(requested_second_stage_method))
+    requested_second_stage_method <- match.arg(requested_second_stage_method,
+      c("SuperLearner", "glm"))
+  second_stage_library <- sl_lib_second_stage
+  if (is.null(second_stage_library) &&
+      (outcome_library_supplied || common_library_supplied))
+    second_stage_library <- sl_lib_outcome
   nuisance_source <- match.arg(nuisance_source)
   model <- match.arg(model)
   predictor_checks <- l2_predictor_sink()
@@ -75,11 +100,15 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
     nuisance_method <- cache$method
     sl_lib_prop <- cache$lib_e; sl_lib_miss <- cache$lib_r; sl_lib_outcome <- cache$lib_y
     propensity_clip <- cache$clip; response_clip <- cache$response_clip
-    learner_fallback <- if (is.null(cache$learner_fallback)) "error" else cache$learner_fallback
+    if (!fallback_supplied) learner_fallback <-
+      if (is.null(cache$learner_fallback)) "error" else cache$learner_fallback
     if (strategy_supplied && moment_strategy != cache$strategy)
       stop("moment_strategy must match the initial fit")
     moment_strategy <- cache$strategy
   }
+  if (is.null(requested_second_stage_method))
+    requested_second_stage_method <- nuisance_method
+  if (is.null(second_stage_library)) second_stage_library <- sl_lib_outcome
 
   if (length(conf_level) != 1L || !is.finite(conf_level) ||
       conf_level <= 0 || conf_level >= 1)
@@ -179,7 +208,8 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
         nu <- list(nu1 = rep(0, sum(te)))
         for (k in 2:4) nu[[paste0("nu", k)]] <- l2_pseudo_regression(
           data[reg, , drop = FALSE], X, ztr[iao]^k, iao,
-          data[te, , drop = FALSE], nuisance_method, sl_lib_outcome, learner_fallback,
+          data[te, , drop = FALSE], requested_second_stage_method,
+          second_stage_library, learner_fallback,
           paste("CS residual moment",k,"arm",a,"fold",v), predictor_checks)
       }
       b <- delta[a + 1L] * (1 - rho); q <- 1 - e
@@ -321,6 +351,8 @@ l2_cs_crossfit <- function(data, Y, A, C, X, delta = c(1, 1),
   out$moment_diagnostics <- do.call(rbind, regularity)
   out$predictor_diagnostics <- l2_predictor_table(predictor_checks)
   out$parameters$learner_fallback <- learner_fallback
+  out$parameters$second_stage_method <- requested_second_stage_method
+  out$parameters$sl_lib_second_stage <- second_stage_library
   out$reused_nuisance_fit <- !is.null(cache)
   joint <- l2_joint_covariance(out$scores)
   out$influence_covariance <- joint$influence

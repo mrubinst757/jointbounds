@@ -125,7 +125,10 @@ l2_multiplier_band <- function(fits, estimator = NULL, B = 1000L,
 #' @param multiplier Multiplier distribution.
 #' @param keep_fits Retain the potentially large list of pointwise fits.
 #' @param nuisance_fit Optional `l2_initial_fit()` object; reuses structural
-#'   predictions and fold settings at every grid point.
+#'   predictions and fold settings at every grid point. Learners for newly
+#'   fitted derivative or moment regressions can be supplied through
+#'   `sl_lib_second_stage` (or an explicit `sl_libs` or `sl_lib_outcome`) in
+#'   `...` and are not overwritten by the structural cache.
 #' @param ... Additional arguments passed to `l2_cs_crossfit()` or
 #'   `l2_sharp_crossfit()`. For example, `sl_libs` supplies a common learner
 #'   library, model-specific library arguments override it, and `basis` sets
