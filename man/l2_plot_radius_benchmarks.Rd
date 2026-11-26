@@ -12,10 +12,16 @@ l2_plot_radius_benchmarks(
   diagonal = TRUE,
   label_points = FALSE,
   point_size = 3,
+  xlim = NULL, ylim = NULL,
+  color_by = c("number_omitted", "variables_omitted"),
+  frontier_type = c("auto", "both", "cs", "sharp"),
   ...
 )
 }
 \arguments{
+\item{xlim,ylim}{Optional increasing two-element display limits; data are not discarded.}
+\item{color_by}{Color points by omitted count or comma-separated omitted variable names.}
+\item{frontier_type}{Display all supplied frontiers (auto), require both CS and sharp (both), or select cs or sharp. Supply a named list of frontier objects to plot both with their respective intervals.}
 \item{frontier}{A tipping-frontier object, or a named list of objects. Each
 object may come from `l2_tipping_frontier()` or `l2_tipping_band()`.}
 

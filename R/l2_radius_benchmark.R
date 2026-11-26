@@ -47,6 +47,7 @@ l2_radius_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
                                  combine_arms = c("max", "mean"),
                                  return_predictions = FALSE) {
   combine_arms <- match.arg(combine_arms)
+  selection_source <- if (!is.null(subsets)) "explicit" else if (is.null(p_z)) "default" else "sizes"
   subset_selection <- match.arg(subset_selection)
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!all(c(Y, A, C, X) %in% names(data)))
@@ -190,7 +191,7 @@ l2_radius_benchmarks <- function(data, Y, A, C, X, p_z = NULL,
   out <- list(results = combined, arm_results = arm_results,
     predictions = if (return_predictions && length(pred_rows)) do.call(rbind, pred_rows) else NULL,
     subsets = subsets, fold_id = fold_id,
-    metadata = list(X = X, folds = folds, seed = seed,
+    metadata = list(selection_source = selection_source, X = X, folds = folds, seed = seed,
       probability_clip = probability_clip, ratio_clip = ratio_clip,
       combine_arms = combine_arms, p_z = p_z,
       max_per_pz = max_per_pz, subset_selection = subset_selection,
@@ -293,6 +294,12 @@ l2_rb_ratio_predict <- function(object, newdata, clip) {
 #'   finite-grid coverage does not imply coverage between grid points.
 #' @param diagonal Add the equal-radius reference line.
 #' @param point_size Size of omission-benchmark points.
+#' @param xlim,ylim Optional increasing two-element axis limits. These zoom the
+#'   display without discarding points used to draw curves and ribbons.
+#' @param color_by Color omission points by their count (default) or by comma-separated omitted variable names.
+#' @param frontier_type Display all supplied frontiers (auto), require both CS
+#'   and sharp frontiers (both), or select cs or sharp. Supply both objects as
+#'   a named list to show their respective uncertainty intervals.
 #' @param ... Reserved for future plotting options.
 #' @return A ggplot object.
 #' @export
@@ -300,11 +307,17 @@ l2_plot_radius_benchmarks <- function(frontier, benchmarks,
                                       uncertainty = NULL,
                                       interpolate = TRUE, diagonal = TRUE,
                                       label_points = FALSE, point_size = 3,
-                                      ...) {
+                                      xlim = NULL, ylim = NULL,
+                                      color_by = c("number_omitted", "variables_omitted"),
+                                      frontier_type = c("auto", "both", "cs", "sharp"), ...) {
   if (!inherits(benchmarks, "jointbounds_l2_radius_benchmarks"))
     stop("benchmarks must be returned by l2_radius_benchmarks()")
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Plotting requires the suggested package ggplot2")
+  color_by <- match.arg(color_by); frontier_type <- match.arg(frontier_type)
+  for (lim in list(xlim,ylim)) if (!is.null(lim) &&
+      (!is.numeric(lim) || length(lim)!=2L || any(!is.finite(lim)) || lim[1]>=lim[2]))
+    stop("Axis limits must be NULL or two increasing finite numbers")
   recognized <- function(z) inherits(z, "jointbounds_l2_calibration_band") ||
     inherits(z, "jointbounds_l2_frontier")
   objects <- if (recognized(frontier)) list(frontier) else frontier
@@ -327,13 +340,21 @@ l2_plot_radius_benchmarks <- function(frontier, benchmarks,
     }
     if (!identical(rx, "delta_M") || !identical(ry, "delta_K"))
       stop("Radius benchmarks require frontiers on delta_M and delta_K axes")
-    if (!nzchar(object_names[j])) object_names[j] <- if (length(objects) == 1L)
-      "Tipping frontier" else if (!is.null(z$endpoint_estimator) &&
-        identical(z$endpoint_estimator, "dr")) "Sharp sieve" else if
-        (!is.null(z$endpoint_estimator) && identical(z$endpoint_estimator, "eif"))
-          "CS outer" else paste("Frontier", j)
-    d$.bound <- object_names[j]
+    method <- if (!is.null(z$endpoint_estimator)) z$endpoint_estimator else
+      if ("method" %in% names(d)) as.character(d$method) else object_names[j]
+    method <- tolower(method)
+    d$.kind <- ifelse(grepl("sharp|dr",method),"sharp",
+      ifelse(grepl("cs|eif",method),"cs","unknown"))
+    d$.bound <- ifelse(d$.kind=="sharp","Sharp sieve approximation frontier",
+      ifelse(d$.kind=="cs","CS outer frontier",object_names[j]))
+    if (any(d$.kind=="unknown") && !nzchar(object_names[j]))
+      d$.bound[d$.kind=="unknown"] <- "Bound frontier (method unspecified)"
     rows[[j]] <- d
+  }
+  if (frontier_type %in% c("cs","sharp")) {
+    keep <- vapply(rows,function(d) any(d$.kind==frontier_type),logical(1))
+    rows <- rows[keep]; has_band <- has_band[keep]
+    if (!length(rows)) stop("The requested frontier type was not supplied")
   }
   if (is.null(uncertainty)) uncertainty <- if (all(has_band))
     "simultaneous" else "none"
@@ -341,7 +362,14 @@ l2_plot_radius_benchmarks <- function(frontier, benchmarks,
     c("simultaneous", "pointwise", "both", "none"))
   if (uncertainty != "none" && any(!has_band))
     stop("Requested uncertainty requires every object to come from l2_tipping_band()")
+  # Normalize differing point/band schemas before combining.
+  columns <- unique(unlist(lapply(rows,names)))
+  rows <- lapply(rows,function(d) {for(nm in setdiff(columns,names(d))) d[[nm]] <- NA; d[columns]})
   f <- do.call(rbind, rows)
+  if (frontier_type=="both" && !all(c("cs","sharp") %in% f$.kind))
+    stop("frontier_type = both requires both CS and sharp frontier objects")
+  if (frontier_type %in% c("cs","sharp")) f <- f[f$.kind==frontier_type,,drop=FALSE]
+  if (!nrow(f)) stop("The requested frontier type was not supplied")
   f <- f[order(f$.bound, f$delta_M), , drop = FALSE]
   f$.missing <- !is.finite(f$estimate)
   f$.segment <- stats::ave(as.integer(f$.missing), f$.bound, FUN = cumsum)
@@ -349,7 +377,7 @@ l2_plot_radius_benchmarks <- function(frontier, benchmarks,
   finite <- f[!f$.missing, , drop = FALSE]
   p <- ggplot2::ggplot(f, ggplot2::aes(x = delta_M))
   if (isTRUE(diagonal)) p <- p + ggplot2::geom_abline(slope = 1,
-    intercept = 0, colour = "grey70", linewidth = .55)
+    intercept = 0, colour = "grey70", linewidth = .55, linetype = "dashed")
   kinds <- if (uncertainty == "both") c("simultaneous", "pointwise") else
     if (uncertainty == "none") character() else uncertainty
   for (kind in kinds) {
@@ -378,20 +406,36 @@ l2_plot_radius_benchmarks <- function(frontier, benchmarks,
     ggplot2::aes(x = delta_M, y = estimate, shape = .bound),
     colour = "black", inherit.aes = FALSE)
   b <- benchmarks$results
+  b$label <- if ("omitted" %in% names(b)) gsub(",", ", ", b$omitted, fixed=TRUE) else
+    gsub("+", ", ", b$label, fixed=TRUE)
+  b$.point_color <- if (color_by=="number_omitted") factor(b$n_omitted,
+    levels=sort(unique(b$n_omitted))) else b$label
   p <- p + ggplot2::geom_point(data = b,
-    ggplot2::aes(x = delta_M, y = delta_K, colour = label),
+    ggplot2::aes(x = delta_M, y = delta_K, colour = .point_color),
     inherit.aes = FALSE, size = point_size)
   if (isTRUE(label_points)) p <- p + ggplot2::geom_text(data = b,
-    ggplot2::aes(x = delta_M, y = delta_K, label = label, colour = label),
+    ggplot2::aes(x = delta_M, y = delta_K, label = label, colour = .point_color),
     inherit.aes = FALSE, nudge_y = .02, check_overlap = TRUE,
     show.legend = FALSE, size = 3.5)
-  caption <- paste0("Omission-radius points are descriptive estimates; their ",
+  meta <- benchmarks$metadata
+  source <- meta$selection_source
+  if (is.null(source)) source <- if (!is.null(benchmarks$call$subsets)) "explicit" else
+    if (is.null(meta$p_z)) "default" else "sizes"
+  selection <- if (source=="explicit") "Omitted sets were specified by the user." else
+    if (source=="default") "Each covariate was omitted individually, and all covariates were omitted together." else
+      paste0("For each retained-set size p_z in {",paste(meta$p_z,collapse=", "),
+        "}, up to ",meta$max_per_pz," subsets were selected ",
+        if (identical(meta$subset_selection,"random")) "at random" else "in lexicographic order",
+        "; the remaining ",length(meta$X)," - p_z covariates were omitted (all subsets used when fewer are available).")
+  caption <- paste0(selection," ","Omission-radius points are descriptive estimates; their ",
     "uncertainty is not shown.", if (isTRUE(interpolate))
       " Lines and ribbons between evaluated grid values are descriptive." else "")
+  caption <- paste(strwrap(caption, width = 105), collapse = "\n")
+  p <- p + if (isTRUE(interpolate)) ggplot2::labs(linetype = "Bound method") else
+    ggplot2::labs(shape = "Bound method")
   p + ggplot2::labs(x = expression(delta[M]), y = expression(delta[K]),
-    fill = "Tipping frontier", linetype = "Tipping frontier",
-    shape = "Tipping frontier", colour = "Omitted covariates",
-    caption = caption) + ggplot2::theme_minimal(base_size = 12) +
+    fill = "Bound method", colour = if (color_by=="number_omitted") "Number omitted" else "Variables omitted",
+    caption = caption) + ggplot2::coord_cartesian(xlim=xlim,ylim=ylim) + ggplot2::theme_minimal(base_size = 12) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
       legend.position = "bottom", legend.box = "vertical")
 }
@@ -406,3 +450,5 @@ l2_plot_radius_benchmarks <- function(frontier, benchmarks,
 plot.jointbounds_l2_radius_benchmarks <- function(x, frontier, ...) {
   l2_plot_radius_benchmarks(frontier = frontier, benchmarks = x, ...)
 }
+
+utils::globalVariables(c(".point_color"))

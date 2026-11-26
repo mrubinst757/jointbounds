@@ -1,3 +1,7 @@
+# jointbounds 0.4.10
+
+- Radius benchmark plots support axis zoom limits, coloring by omission count or variable names, selection-method captions, and explicit CS/sharp/both display controls. The equal-radius diagonal is dashed.
+
 # jointbounds 0.4.9
 
 - Separated cached structural-nuisance learners from newly fitted sharp derivative and CS residual-moment regressions. Explicit downstream `sl_lib_second_stage`, `sl_lib_outcome`, or `sl_libs` settings are now honored with `nuisance_fit`; `second_stage_method` can independently select SuperLearner or GLM.

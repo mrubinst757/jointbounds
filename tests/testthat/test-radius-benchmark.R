@@ -71,7 +71,7 @@ test_that("radius benchmark input validation is informative", {
 test_that("radius benchmark plot combines sharp and CS frontier bands", {
   skip_if_not_installed("ggplot2")
   bench <- structure(list(results = data.frame(
-    label = c("Omit X1", "Omit X2"),
+    label = c("Omit X1", "Omit X2"), omitted=c("X1", "X2"), n_omitted=c(1L,1L),
     delta_M = c(.05, .12), delta_K = c(.18, .08))),
     class = "jointbounds_l2_radius_benchmarks")
   make_band <- function(shift, estimator) structure(list(
@@ -88,6 +88,21 @@ test_that("radius benchmark plot combines sharp and CS frontier bands", {
   p <- plot(bench, frontier = list(`Sharp sieve` = sharp, `CS outer` = cs),
             uncertainty = "simultaneous")
   expect_s3_class(p, "ggplot")
+  q <- l2_plot_radius_benchmarks(list(cs=cs,sharp=sharp),bench,
+    frontier_type="both",uncertainty="both",color_by="variables_omitted",
+    xlim=c(0,.15),ylim=c(0,.5))
+  expect_equal(q$coordinates$limits$x,c(0,.15))
+  expect_equal(q$coordinates$limits$y,c(0,.5))
+  expect_setequal(q$data$.bound,c("CS outer frontier","Sharp sieve approximation frontier"))
+  expect_equal(q$layers[[1]]$aes_params$linetype,"dashed")
+  expect_length(unique(ggplot2::ggplot_build(q)$data[[2]]$group),2)
+  expect_error(l2_plot_radius_benchmarks(cs,bench,frontier_type="both"),"requires both")
+  bench$metadata <- list(selection_source="sizes",X=c("X1","X2","X3"),p_z=1,max_per_pz=2,subset_selection="random")
+  bench$results$omitted <- c("X1,X2","X2,X3")
+  q <- l2_plot_radius_benchmarks(cs,bench,color_by="variables_omitted")
+  expect_match(q$labels$caption,"up to 2 subsets.*at random")
+  expect_match(q$labels$caption,"remaining 3 - p_z")
+  expect_equal(tail(q$layers,1)[[1]]$data$label,c("X1, X2","X2, X3"))
   expect_gte(length(p$layers), 4L)
   expect_error(l2_plot_radius_benchmarks(
     structure(data.frame(delta_M = 0, delta_K = 0),
